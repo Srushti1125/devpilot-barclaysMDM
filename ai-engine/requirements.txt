@@ -1,0 +1,29 @@
+# --- Core web service ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+python-multipart==0.0.9
+
+# --- LangChain core + integrations ---
+langchain==0.3.7
+langchain-core==0.3.15
+langchain-community==0.3.5
+langchain-postgres==0.0.12
+langchain-google-genai==2.0.4
+langchain-text-splitters==0.3.2
+
+# --- Document ingestion ---
+unstructured[all-docs]==0.15.13
+
+# --- Vector store ---
+pgvector==0.2.5
+psycopg[binary]==3.2.3
+
+# --- Token utilities ---
+tiktoken==0.8.0
+
+# --- Config / env ---
+python-dotenv==1.0.1
+
+# --- Optional fallback provider (Mistral) ---
+langchain-mistralai==0.2.1

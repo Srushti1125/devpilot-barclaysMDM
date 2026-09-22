@@ -1,0 +1,87 @@
+# DevPilot Sample Project — Software Requirements Specification
+
+## 1. Authentication & Account Management
+
+The system shall allow users to register an account using their email
+address and a password. Passwords must be at least 8 characters long and
+contain at least one number and one special character.
+
+The system shall allow registered users to log in using their email and
+password. On three consecutive failed login attempts, the account shall be
+temporarily locked for 15 minutes.
+
+The system shall allow users to reset their password via a link sent to
+their registered email address. The reset link must expire after 30
+minutes and can only be used once.
+
+The system shall support role-based access control (RBAC) with at least
+two roles: Admin and Standard User. Admins can manage other users' accounts;
+Standard Users can only manage their own.
+
+## 2. Project Management
+
+The system shall allow a logged-in user to create a new project by
+providing a project name and an optional description.
+
+The system shall allow a user to upload one or more requirement documents
+(PDF, DOCX, or TXT) to a project. Uploaded documents shall be stored and
+associated with that project only.
+
+The system shall display a list of all projects owned by the logged-in
+user, sorted by most recently updated.
+
+Users shall be able to delete a project. Deleting a project shall also
+delete all associated requirement documents, generated artifacts, and
+generation history for that project.
+
+## 3. Artifact Generation
+
+The system shall generate user stories from an uploaded requirement,
+including a title, the story itself in "As a / I want / so that" format,
+a priority level, a category, and any dependencies on other stories.
+
+The system shall generate acceptance criteria for a given user story in
+Given/When/Then format, covering positive, negative, and edge cases.
+
+The system shall generate test cases derived from acceptance criteria,
+covering positive, negative, boundary, and security test categories, each
+traceable back to its source requirement.
+
+The system shall generate a REST API specification for a given requirement,
+including endpoint paths, HTTP methods, request and response schemas, and
+standard error codes.
+
+The system shall generate an architecture recommendation for a given set of
+requirements, including the recommended architecture pattern, technology
+stack, key components, data flow, and security considerations.
+
+The system shall generate a sprint plan from a set of user stories,
+including story point estimates, effort estimates, dependencies between
+stories, sprint allocation, and the critical path.
+
+## 4. Evaluation & Quality
+
+The system shall track, for every generation request, which prompt version
+was used, how many tokens were consumed, and how long the request took.
+
+The system shall allow re-running the same generation request to measure
+consistency between two runs of the same input.
+
+The system shall support comparing AI-generated artifacts against a
+human-created baseline for the same requirement, to measure accuracy and
+completeness.
+
+## 5. Security & Non-Functional Requirements
+
+All API endpoints shall require a valid JWT for authentication, except for
+the login and registration endpoints.
+
+All user input shall be validated and sanitized on the backend to prevent
+SQL injection and XSS attacks.
+
+The system shall log all authentication events (login, logout, failed
+login, password reset) for audit purposes, without storing plaintext
+passwords in any log.
+
+The system shall rate-limit API requests per user to prevent abuse, with a
+configurable threshold per endpoint.
