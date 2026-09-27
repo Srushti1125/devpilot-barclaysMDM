@@ -1,5 +1,4 @@
 """
-Expose the AI engine as an internal HTTP API
 Run locally: uvicorn app.main:app --reload --port 8001
 """
 import logging
@@ -22,7 +21,7 @@ logger = logging.getLogger("devpilot.ai_engine")
 
 app = FastAPI(
     title="DevPilot AI Engine",
-    description="GenAI + RAG + Prompt Engineering service (Person 3's component).",
+    description="GenAI + RAG + Prompt Engineering service ",
     version="1.0.0",
 )
 
@@ -63,23 +62,16 @@ class IngestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 @app.get("/health")
 def health():
-    """Readiness probe for Person 6's CI/CD + orchestrator health checks."""
     return {"status": "ok", "default_llm": settings.DEFAULT_LLM}
 
 
 @app.get("/artifact-types")
 def artifact_types():
-    """Lets Person 1's frontend / Person 2's backend discover valid artifact_type values."""
     return {"artifact_types": sorted(SCHEMA_REGISTRY.keys())}
 
 
 @app.post("/ingest", response_model=IngestResponse)
 def ingest(req: IngestRequest):
-    """
-    Loads a requirement document (already uploaded by Person 1's frontend
-    and stored/forwarded by Person 2's backend), chunks it, embeds it, and
-    indexes it into pgvector under the given project_id.
-    """
     try:
         docs = load_requirement_doc(req.file_path, req.project_id, req.doc_type)
         chunks = chunk_documents(docs)
@@ -97,10 +89,6 @@ def ingest(req: IngestRequest):
 
 @app.post("/generate", response_model=GenerateResponse)
 def generate(req: GenerateRequest):
-    """
-    Runs the full pipeline: Requirement -> RAG -> Prompt -> LLM ->
-    Structured Response -> Quality Check, for one artifact type.
-    """
     try:
         schema_cls = get_schema(req.artifact_type)
     except ValueError as e:
