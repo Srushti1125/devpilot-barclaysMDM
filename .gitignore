@@ -12,6 +12,8 @@ __pycache__/
 *.py[cod]
 *.class
 .pytest_cache/
+backend/devpilot.db
+backend/var/
 
 # Node / React (for Person 1)
 node_modules/
@@ -24,3 +26,4 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+backend/.coverage
