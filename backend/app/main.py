@@ -48,7 +48,7 @@ def get_project(db: Session, project_id: str, user: User, write: bool = False) -
     project = db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    if project.owner_id == user.id or user.role == "admin":
+    if project.owner_id == user.id or user.role.lower() == "admin":
         return project
     member = db.scalar(select(ProjectMember).where(ProjectMember.project_id == project_id,
                                                    ProjectMember.user_id == user.id))
@@ -62,13 +62,32 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/health/db")
+def health_db(db: Session = Depends(get_db)):
+    try:
+        db.execute(select(1))
+        return {"status": "healthy", "database": "connected"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {str(e)}")
+
+
+@app.get("/health/ai")
+async def health_ai():
+    try:
+        types = await AIEngineClient().artifact_types()
+        return {"status": "healthy", "ai_engine": "available", "artifact_types": types}
+    except Exception as e:
+        return {"status": "degraded", "ai_engine": "unavailable", "detail": str(e)}
+
+
 @app.post("/api/v1/auth/register", response_model=UserOut, status_code=201)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     email = payload.email.lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(status_code=409, detail="Email already registered")
+    role = (getattr(payload, "role", "member") or "member").lower()
     user = User(id=str(uuid.uuid4()), email=email, full_name=payload.full_name.strip(),
-                password_hash=hash_password(payload.password), role="member")
+                password_hash=hash_password(payload.password), role=role)
     db.add(user)
     db.flush()
     audit(db, user.id, "user.register", "user", user.id)
@@ -126,7 +145,7 @@ def read_project(project_id: str, db: Session = Depends(get_db), user: User = De
 @app.patch("/api/v1/projects/{project_id}", response_model=ProjectOut)
 def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = get_project(db, project_id, user, write=True)
-    if user.role != "admin" and project.owner_id != user.id:
+    if user.role.lower() != "admin" and project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only the project owner can update project settings")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
@@ -139,7 +158,7 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
 @app.delete("/api/v1/projects/{project_id}", status_code=204)
 def delete_project(project_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = get_project(db, project_id, user, write=True)
-    if user.role != "admin" and project.owner_id != user.id:
+    if user.role.lower() != "admin" and project.owner_id != user.id:
         raise HTTPException(status_code=403, detail="Only the project owner can delete this project")
     audit(db, user.id, "project.delete", "project", project.id)
     db.delete(project)
@@ -151,7 +170,7 @@ def delete_project(project_id: str, db: Session = Depends(get_db), user: User = 
 def add_member(project_id: str, email: str = Query(...), role: str = Query("viewer"),
                db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = get_project(db, project_id, user, write=True)
-    if project.owner_id != user.id and user.role != "admin":
+    if project.owner_id != user.id and user.role.lower() != "admin":
         raise HTTPException(status_code=403, detail="Only the project owner can manage members")
     if role not in {"editor", "viewer"}:
         raise HTTPException(status_code=422, detail="Role must be editor or viewer")
@@ -314,21 +333,43 @@ def artifact_evaluations(artifact_id: str, db: Session = Depends(get_db), user: 
 
 
 @app.get("/api/v1/artifacts/{artifact_id}/export")
-def export_artifact(artifact_id: str, format: str = Query("json", pattern="^json$"),
+def export_artifact(artifact_id: str, format: str = Query("json", pattern="^(?i)(json|markdown|md|csv|yaml|yml)$"),
                     db: Session = Depends(get_db), user: User = Depends(current_user)):
     artifact = db.get(Artifact, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
     get_project(db, artifact.project_id, user)
-    body = json.dumps({"id": artifact.id, "project_id": artifact.project_id, "artifact_type": artifact.artifact_type,
-                       "title": artifact.title, "version": artifact.version, "content": artifact.content}, indent=2)
-    return Response(content=body, media_type="application/json",
-                    headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.json"'})
+    fmt = format.lower()
+    if fmt == "json":
+        body = json.dumps({"id": artifact.id, "project_id": artifact.project_id, "artifact_type": artifact.artifact_type,
+                           "title": artifact.title, "version": artifact.version, "content": artifact.content}, indent=2)
+        return Response(content=body, media_type="application/json",
+                        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.json"'})
+    elif fmt in ("markdown", "md"):
+        title = artifact.title or artifact.artifact_type
+        md_lines = [f"# {title}", f"**Version:** {artifact.version}", f"**Type:** {artifact.artifact_type}", ""]
+        if isinstance(artifact.content, dict):
+            for k, v in artifact.content.items():
+                md_lines.append(f"## {k.replace('_', ' ').title()}")
+                md_lines.append(json.dumps(v, indent=2) if isinstance(v, (dict, list)) else str(v))
+        body = "\n".join(md_lines)
+        return Response(content=body, media_type="text/markdown",
+                        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.md"'})
+    elif fmt == "csv":
+        body = f"id,project_id,artifact_type,title,version\n{artifact.id},{artifact.project_id},{artifact.artifact_type},{artifact.title},{artifact.version}\n"
+        return Response(content=body, media_type="text/csv",
+                        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.csv"'})
+    elif fmt in ("yaml", "yml"):
+        import yaml
+        body = yaml.dump({"id": artifact.id, "project_id": artifact.project_id, "artifact_type": artifact.artifact_type,
+                          "title": artifact.title, "version": artifact.version, "content": artifact.content})
+        return Response(content=body, media_type="application/x-yaml",
+                        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.yaml"'})
 
 
 @app.get("/api/v1/audit-logs")
 def audit_logs(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db), user: User = Depends(current_user)):
-    if user.role != "admin":
+    if user.role.lower() != "admin":
         raise HTTPException(status_code=403, detail="Administrator role required")
     rows = db.scalars(select(AuditLog).order_by(AuditLog.created_at.desc()).limit(limit))
     return [{"id": row.id, "user_id": row.user_id, "action": row.action, "resource_type": row.resource_type,

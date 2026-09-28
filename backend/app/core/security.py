@@ -24,8 +24,13 @@ def create_access_token(subject: str) -> str:
 
 def decode_token_subject(token: str) -> str | None:
     """Return the `sub` claim or *None* when the token is invalid/expired."""
+    if not token or not isinstance(token, str):
+        return None
     try:
         payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[ALGORITHM])
         return payload.get("sub")
     except JWTError:
         return None
+
+
+token_subject = decode_token_subject

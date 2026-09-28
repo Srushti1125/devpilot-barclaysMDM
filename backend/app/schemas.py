@@ -7,6 +7,7 @@ class UserCreate(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=1, max_length=160)
     password: str = Field(min_length=8, max_length=128)
+    role: str = Field(default="member")
 
     @field_validator("full_name")
     @classmethod
