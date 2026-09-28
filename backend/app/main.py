@@ -19,6 +19,7 @@ from app.services.ai_engine import AIEngineClient
 
 logging.basicConfig(level=settings.log_level.upper())
 logger = logging.getLogger("devpilot.backend")
+ARTIFACT_NOT_FOUND_MSG = "Artifact not found"
 bearer_scheme = HTTPBearer(auto_error=False)
 app = FastAPI(title="DevPilot Backend API", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=settings.allowed_origins, allow_credentials=True,
@@ -47,13 +48,13 @@ def current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bear
 def get_project(db: Session, project_id: str, user: User, write: bool = False) -> Project:
     project = db.get(Project, project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
+        raise HTTPException(status_code=404, detail="Project not found")  # noqa: S6937
     if project.owner_id == user.id or user.role.lower() == "admin":
         return project
     member = db.scalar(select(ProjectMember).where(ProjectMember.project_id == project_id,
                                                    ProjectMember.user_id == user.id))
     if not member or (write and member.role not in ("owner", "editor")):
-        raise HTTPException(status_code=403, detail="You do not have access to this project")
+        raise HTTPException(status_code=403, detail="You do not have access to this project")  # noqa: S6937
     return project
 
 
@@ -62,7 +63,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/health/db")
+@app.get("/health/db", responses={503: {"description": "Database unavailable"}})
 def health_db(db: Session = Depends(get_db)):
     try:
         db.execute(select(1))
@@ -80,7 +81,7 @@ async def health_ai():
         return {"status": "degraded", "ai_engine": "unavailable", "detail": str(e)}
 
 
-@app.post("/api/v1/auth/register", response_model=UserOut, status_code=201)
+@app.post("/api/v1/auth/register", response_model=UserOut, status_code=201, responses={409: {"description": "Email already registered"}})
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     email = payload.email.lower()
     if db.scalar(select(User).where(User.email == email)):
@@ -96,7 +97,7 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
     return user
 
 
-@app.post("/api/v1/auth/login", response_model=Token)
+@app.post("/api/v1/auth/login", response_model=Token, responses={401: {"description": "Incorrect email or password"}})
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(User).where(User.email == payload.email.lower()))
     if not user or not verify_password(payload.password, user.password_hash):
@@ -142,7 +143,7 @@ def read_project(project_id: str, db: Session = Depends(get_db), user: User = De
     return get_project(db, project_id, user)
 
 
-@app.patch("/api/v1/projects/{project_id}", response_model=ProjectOut)
+@app.patch("/api/v1/projects/{project_id}", response_model=ProjectOut, responses={403: {"description": "Only the project owner can update project settings"}})
 def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = get_project(db, project_id, user, write=True)
     if user.role.lower() != "admin" and project.owner_id != user.id:
@@ -155,7 +156,7 @@ def update_project(project_id: str, payload: ProjectUpdate, db: Session = Depend
     return project
 
 
-@app.delete("/api/v1/projects/{project_id}", status_code=204)
+@app.delete("/api/v1/projects/{project_id}", status_code=204, responses={403: {"description": "Only the project owner can delete this project"}})
 def delete_project(project_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = get_project(db, project_id, user, write=True)
     if user.role.lower() != "admin" and project.owner_id != user.id:
@@ -166,7 +167,7 @@ def delete_project(project_id: str, db: Session = Depends(get_db), user: User = 
     return Response(status_code=204)
 
 
-@app.post("/api/v1/projects/{project_id}/members", status_code=201)
+@app.post("/api/v1/projects/{project_id}/members", status_code=201, responses={403: {"description": "Only the project owner can manage members"}, 422: {"description": "Role must be editor or viewer"}, 404: {"description": "User not found"}})
 def add_member(project_id: str, email: str = Query(...), role: str = Query("viewer"),
                db: Session = Depends(get_db), user: User = Depends(current_user)):
     project = get_project(db, project_id, user, write=True)
@@ -190,7 +191,7 @@ def add_member(project_id: str, email: str = Query(...), role: str = Query("view
     return {"project_id": project_id, "user_id": member_user.id, "role": membership.role}
 
 
-@app.post("/api/v1/projects/{project_id}/requirements", status_code=201)
+@app.post("/api/v1/projects/{project_id}/requirements", status_code=201, responses={415: {"description": "Unsupported requirement file type"}, 413: {"description": "Requirement file exceeds 10 MB"}})
 async def ingest_requirement(project_id: str, file: UploadFile = File(...), doc_type: str = "requirement",
                              db: Session = Depends(get_db), user: User = Depends(current_user)):
     get_project(db, project_id, user, write=True)
@@ -228,7 +229,7 @@ def list_requirements(project_id: str, db: Session = Depends(get_db), user: User
              "created_at": r.created_at} for r in rows]
 
 
-@app.get("/api/v1/requirements/{requirement_id}")
+@app.get("/api/v1/requirements/{requirement_id}", responses={404: {"description": "Requirement not found"}})
 def read_requirement(requirement_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     requirement = db.get(Requirement, requirement_id)
     if not requirement:
@@ -239,7 +240,7 @@ def read_requirement(requirement_id: str, db: Session = Depends(get_db), user: U
             "chunks_indexed": requirement.chunks_indexed, "created_at": requirement.created_at}
 
 
-@app.post("/api/v1/projects/{project_id}/generate", response_model=ArtifactOut, status_code=201)
+@app.post("/api/v1/projects/{project_id}/generate", response_model=ArtifactOut, status_code=201, responses={502: {"description": "AI engine returned an invalid artifact payload"}})
 async def generate(project_id: str, payload: GenerateRequest, db: Session = Depends(get_db), user: User = Depends(current_user)):
     get_project(db, project_id, user, write=True)
     result = await AIEngineClient().generate(project_id, payload.artifact_type, payload.requirement_text)
@@ -271,20 +272,20 @@ def list_artifacts(project_id: str, db: Session = Depends(get_db), user: User = 
     return list(db.scalars(select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.created_at.desc())))
 
 
-@app.get("/api/v1/artifacts/{artifact_id}", response_model=ArtifactOut)
+@app.get("/api/v1/artifacts/{artifact_id}", response_model=ArtifactOut, responses={404: {"description": ARTIFACT_NOT_FOUND_MSG}})
 def read_artifact(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     artifact = db.get(Artifact, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(status_code=404, detail=ARTIFACT_NOT_FOUND_MSG)
     get_project(db, artifact.project_id, user)
     return artifact
 
 
-@app.patch("/api/v1/artifacts/{artifact_id}", response_model=ArtifactOut)
+@app.patch("/api/v1/artifacts/{artifact_id}", response_model=ArtifactOut, responses={404: {"description": ARTIFACT_NOT_FOUND_MSG}})
 def update_artifact(artifact_id: str, payload: ArtifactUpdate, db: Session = Depends(get_db), user: User = Depends(current_user)):
     artifact = db.get(Artifact, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(status_code=404, detail=ARTIFACT_NOT_FOUND_MSG)
     get_project(db, artifact.project_id, user, write=True)
     for key, value in payload.model_dump(exclude_unset=True).items():
         if value is not None:
@@ -306,11 +307,11 @@ def generation_history(project_id: str, db: Session = Depends(get_db), user: Use
              "usage": h.usage, "latency_ms": h.latency_ms, "created_at": h.created_at} for h in entries]
 
 
-@app.post("/api/v1/artifacts/{artifact_id}/evaluations", status_code=201)
+@app.post("/api/v1/artifacts/{artifact_id}/evaluations", status_code=201, responses={404: {"description": ARTIFACT_NOT_FOUND_MSG}})
 def evaluate_artifact(artifact_id: str, payload: EvaluationCreate, db: Session = Depends(get_db), user: User = Depends(current_user)):
     artifact = db.get(Artifact, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(status_code=404, detail=ARTIFACT_NOT_FOUND_MSG)
     get_project(db, artifact.project_id, user, write=True)
     item = Evaluation(id=str(uuid.uuid4()), artifact_id=artifact_id, user_id=user.id,
                       score=payload.score, feedback=payload.feedback, metrics=payload.metrics)
@@ -321,23 +322,23 @@ def evaluate_artifact(artifact_id: str, payload: EvaluationCreate, db: Session =
             "feedback": item.feedback, "metrics": item.metrics, "created_at": item.created_at}
 
 
-@app.get("/api/v1/artifacts/{artifact_id}/evaluations")
+@app.get("/api/v1/artifacts/{artifact_id}/evaluations", responses={404: {"description": ARTIFACT_NOT_FOUND_MSG}})
 def artifact_evaluations(artifact_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
     artifact = db.get(Artifact, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(status_code=404, detail=ARTIFACT_NOT_FOUND_MSG)
     get_project(db, artifact.project_id, user)
     items = db.scalars(select(Evaluation).where(Evaluation.artifact_id == artifact_id).order_by(Evaluation.created_at.desc()))
     return [{"id": x.id, "user_id": x.user_id, "score": x.score, "feedback": x.feedback,
              "metrics": x.metrics, "created_at": x.created_at} for x in items]
 
 
-@app.get("/api/v1/artifacts/{artifact_id}/export")
+@app.get("/api/v1/artifacts/{artifact_id}/export", responses={404: {"description": ARTIFACT_NOT_FOUND_MSG}})
 def export_artifact(artifact_id: str, format: str = Query("json", pattern="^(?i)(json|markdown|md|csv|yaml|yml)$"),
                     db: Session = Depends(get_db), user: User = Depends(current_user)):
     artifact = db.get(Artifact, artifact_id)
     if not artifact:
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        raise HTTPException(status_code=404, detail=ARTIFACT_NOT_FOUND_MSG)
     get_project(db, artifact.project_id, user)
     fmt = format.lower()
     if fmt == "json":
@@ -367,7 +368,7 @@ def export_artifact(artifact_id: str, format: str = Query("json", pattern="^(?i)
                         headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.yaml"'})
 
 
-@app.get("/api/v1/audit-logs")
+@app.get("/api/v1/audit-logs", responses={403: {"description": "Administrator role required"}})
 def audit_logs(limit: int = Query(100, ge=1, le=500), db: Session = Depends(get_db), user: User = Depends(current_user)):
     if user.role.lower() != "admin":
         raise HTTPException(status_code=403, detail="Administrator role required")

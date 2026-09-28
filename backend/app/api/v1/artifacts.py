@@ -130,6 +130,63 @@ def artifact_evaluations(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
 
+def _export_json(artifact) -> Response:
+    body = json.dumps(
+        {
+            "id": artifact.id,
+            "project_id": artifact.project_id,
+            "artifact_type": artifact.artifact_type,
+            "title": artifact.title,
+            "version": artifact.version,
+            "content": artifact.content,
+        },
+        indent=2,
+    )
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.json"'},
+    )
+
+def _export_markdown(artifact) -> Response:
+    title = artifact.title or artifact.artifact_type
+    md_lines = [f"# {title}", f"**Version:** {artifact.version}", f"**Type:** {artifact.artifact_type}", ""]
+    if isinstance(artifact.content, dict):
+        for k, v in artifact.content.items():
+            md_lines.append(f"## {k.replace('_', ' ').title()}")
+            md_lines.append(json.dumps(v, indent=2) if isinstance(v, (dict, list)) else str(v))
+    body = "\n".join(md_lines)
+    return Response(
+        content=body,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.md"'},
+    )
+
+def _export_csv(artifact) -> Response:
+    body = f"id,project_id,artifact_type,title,version\n{artifact.id},{artifact.project_id},{artifact.artifact_type},{artifact.title},{artifact.version}\n"
+    return Response(
+        content=body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.csv"'},
+    )
+
+def _export_yaml(artifact) -> Response:
+    body = yaml.dump(
+        {
+            "id": artifact.id,
+            "project_id": artifact.project_id,
+            "artifact_type": artifact.artifact_type,
+            "title": artifact.title,
+            "version": artifact.version,
+            "content": artifact.content,
+        }
+    )
+    return Response(
+        content=body,
+        media_type="application/x-yaml",
+        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.yaml"'},
+    )
+
 @router.get("/artifacts/{artifact_id}/export")
 def export_artifact(
     artifact_id: str,
@@ -146,55 +203,10 @@ def export_artifact(
 
     fmt = format.lower()
     if fmt == "json":
-        body = json.dumps(
-            {
-                "id": artifact.id,
-                "project_id": artifact.project_id,
-                "artifact_type": artifact.artifact_type,
-                "title": artifact.title,
-                "version": artifact.version,
-                "content": artifact.content,
-            },
-            indent=2,
-        )
-        return Response(
-            content=body,
-            media_type="application/json",
-            headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.json"'},
-        )
-    elif fmt in ("markdown", "md"):
-        title = artifact.title or artifact.artifact_type
-        md_lines = [f"# {title}", f"**Version:** {artifact.version}", f"**Type:** {artifact.artifact_type}", ""]
-        if isinstance(artifact.content, dict):
-            for k, v in artifact.content.items():
-                md_lines.append(f"## {k.replace('_', ' ').title()}")
-                md_lines.append(json.dumps(v, indent=2) if isinstance(v, (dict, list)) else str(v))
-        body = "\n".join(md_lines)
-        return Response(
-            content=body,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.md"'},
-        )
-    elif fmt == "csv":
-        body = f"id,project_id,artifact_type,title,version\n{artifact.id},{artifact.project_id},{artifact.artifact_type},{artifact.title},{artifact.version}\n"
-        return Response(
-            content=body,
-            media_type="text/csv",
-            headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.csv"'},
-        )
-    elif fmt in ("yaml", "yml"):
-        body = yaml.dump(
-            {
-                "id": artifact.id,
-                "project_id": artifact.project_id,
-                "artifact_type": artifact.artifact_type,
-                "title": artifact.title,
-                "version": artifact.version,
-                "content": artifact.content,
-            }
-        )
-        return Response(
-            content=body,
-            media_type="application/x-yaml",
-            headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.yaml"'},
-        )
+        return _export_json(artifact)
+    if fmt in ("markdown", "md"):
+        return _export_markdown(artifact)
+    if fmt == "csv":
+        return _export_csv(artifact)
+    if fmt in ("yaml", "yml"):
+        return _export_yaml(artifact)
