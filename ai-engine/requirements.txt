@@ -13,7 +13,9 @@ langchain-google-genai==2.0.4
 langchain-text-splitters==0.3.2
 
 # --- Document ingestion ---
-unstructured[all-docs]==0.15.13
+unstructured>=0.18.0
+pypdf>=5.0.0
+python-docx>=1.1.0
 
 # --- Vector store ---
 pgvector==0.2.5

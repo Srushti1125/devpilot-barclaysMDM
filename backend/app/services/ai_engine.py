@@ -1,6 +1,6 @@
 import httpx
 from fastapi import HTTPException
-from app.config import settings
+from app.core.config import settings
 
 
 class AIEngineClient:
@@ -39,4 +39,3 @@ class AIEngineClient:
             "project_id": project_id,
             "doc_type": doc_type,
         })
-
