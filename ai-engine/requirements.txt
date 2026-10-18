@@ -5,14 +5,26 @@ pydantic==2.9.2
 python-multipart==0.0.9
 
 # --- LangChain core + integrations ---
-langchain==0.3.7
-langchain-core==0.3.15
-langchain-community==0.3.5
+# langchain-core raised 0.3.15 -> 0.3.86 for langgraph + langchain-cohere + ragas.
+# All stay inside the 0.3.x series (pydantic 2.9.2 compatible); verified by full test suite.
+langchain==0.3.30
+langchain-core==0.3.86
+langchain-community==0.3.31
 langchain-postgres==0.0.12
 langchain-google-genai==2.0.4
-langchain-text-splitters==0.3.2
+langchain-groq==0.2.1           # Primary LLM provider (generation). Needs langchain-core>=0.3.15,<0.4
+langchain-text-splitters==0.3.11
+
+# --- Agentic SOP swarm (IMPLEMENTATION.draft.md §3.2) ---
+langgraph>=0.2.6,<0.3           # 1.x requires langchain-core 1.x — do not float major
 
 # --- Document ingestion ---
+docling==2.15.1                # Structure-aware PDF/DOCX parsing (headings, tables, pages). Pulls torch (~2.5 GB installed)
+docling-core==2.13.1           # Coupled pins: newer docling-core (2.8x) removes legacy BoundingBox that docling 2.15 imports
+docling-ibm-models==3.1.0      # Coupled pin: 3.15 requires docling-core>=2.33
+docling-parse==3.0.0           # Coupled pin: 3.4 requires docling-core>=2.14
+numpy==1.26.4                  # langchain-community requires numpy<2; docling would otherwise upgrade it
+opencv-python-headless==4.10.0.84  # easyocr (via docling) leaves this unbounded; 5.x requires numpy>=2
 unstructured>=0.18.0
 pypdf>=5.0.0
 python-docx>=1.1.0
@@ -20,6 +32,14 @@ python-docx>=1.1.0
 # --- Vector store ---
 pgvector==0.2.5
 psycopg[binary]==3.2.3
+
+# --- Cloud reranking (§2.2.3) — degrades gracefully without COHERE_API_KEY ---
+cohere>=5.0,<6
+langchain-cohere>=0.3,<0.4
+
+# --- Offline evaluation (§4.2 Layers 2–3) ---
+ragas>=0.2,<0.3                # openevals is NOT used: it pins langchain-core 1.x (conflict).
+datasets>=2.20,<6              #   Judge is implemented inline with openevals-compatible contract.
 
 # --- Token utilities ---
 tiktoken==0.8.0

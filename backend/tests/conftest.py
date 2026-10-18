@@ -20,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import User, Project, ProjectMember
+from app.domain.models import User, Project, ProjectMember
 from app.security import hash_password, create_access_token
 from app.services.ai_engine import AIEngineClient
 from app.repositories.user_repo import UserRepository
@@ -224,10 +224,19 @@ def mock_ai_generate(monkeypatch):
 @pytest.fixture
 def mock_ai_ingest(monkeypatch):
     """Mocks AIEngineClient.ingest for requirement ingestion."""
-    async def fake_ingest(self, file_path, project_id, doc_type="requirement"):
+    async def fake_ingest(self, file_path, project_id, doc_type="requirement", doc_id=None):
         return {
             "status": "indexed",
             "chunks_indexed": 5,
+            "doc_id": doc_id,
+            "content_hash": "c" * 64,
+            "tree_nodes": [
+                {"node_id": "n-root", "parent_id": None, "ordinal": "0", "level": 1,
+                 "title": "1 Authentication", "page_start": 1, "page_end": 2, "text": "", "low_structure": False},
+                {"node_id": "n-child", "parent_id": "n-root", "ordinal": "0.0", "level": 2,
+                 "title": "1.1 Password Reset", "page_start": 1, "page_end": 1,
+                 "text": "Reset via OTP.", "low_structure": False},
+            ],
             "entities": ["PaymentService", "Account"],
             "constraints": ["Max transaction $10,000"],
         }

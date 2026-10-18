@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, engine, get_db
-from app.models import Artifact, AuditLog, Evaluation, GenerationHistory, Project, ProjectMember, Requirement, User
+from app.domain.models import Artifact, AuditLog, DocTreeNode, Evaluation, GenerationHistory, Project, ProjectMember, Requirement, User
 from app.schemas import (ArtifactOut, ArtifactUpdate, EvaluationCreate, GenerateRequest, LoginRequest,
                          ProjectCreate, ProjectOut, ProjectUpdate, Token, UserCreate, UserOut)
 from app.security import create_access_token, hash_password, token_subject, verify_password
@@ -206,17 +206,29 @@ async def ingest_requirement(project_id: str, file: UploadFile = File(...), doc_
     path = Path(settings.upload_dir) / f"{uuid.uuid4()}{suffix}"
     path.write_bytes(data)
     content = data.decode("utf-8", errors="replace") if suffix in {".txt", ".md", ".csv", ".html"} else ""
+    requirement_id = str(uuid.uuid4())
     try:
-        result = await AIEngineClient().ingest(str(path.resolve()), project_id, doc_type)
+        result = await AIEngineClient().ingest(str(path.resolve()), project_id, doc_type, doc_id=requirement_id)
     except Exception:
         path.unlink(missing_ok=True)
         raise
-    record = Requirement(id=str(uuid.uuid4()), project_id=project_id, uploaded_by=user.id, filename=filename,
+    record = Requirement(id=requirement_id, project_id=project_id, uploaded_by=user.id, filename=filename,
                          file_path=str(path), content=content, doc_type=doc_type,
                          chunks_indexed=result.get("chunks_indexed", 0))
     db.add(record)
+    db.flush()  # parent row first: doc_tree_nodes.doc_id references requirements.id
+    # ai-engine returns nodes parents-first, so insertion order satisfies the parent_id self-FK.
+    for node in result.get("tree_nodes", []):
+        db.add(DocTreeNode(
+            id=node["node_id"], project_id=project_id, doc_id=requirement_id,
+            parent_id=node.get("parent_id"), ordinal=node["ordinal"], level=node["level"],
+            title=node["title"][:512], page_start=node.get("page_start"), page_end=node.get("page_end"),
+            text=node.get("text", ""), low_structure=bool(node.get("low_structure", False)),
+            content_hash=result.get("content_hash", ""),
+        ))
     audit(db, user.id, "requirement.ingest", "requirement", record.id,
-          {"filename": filename, "chunks_indexed": record.chunks_indexed})
+          {"filename": filename, "chunks_indexed": record.chunks_indexed,
+           "tree_nodes": len(result.get("tree_nodes", []))})
     db.commit()
     return {"id": record.id, "filename": filename, "project_id": project_id, **result}
 

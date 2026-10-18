@@ -13,6 +13,10 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
+# Pre-bake Docling layout/table models (~200 MB) so the first /ingest does not download them
+# at request time (IMPLEMENTATION.draft.md §11 W-1).
+RUN python -c "from docling.pipeline.standard_pdf_pipeline import StandardPdfPipeline as P; P.download_models_hf()"
+
 COPY app ./app
 
 # Secrets (GOOGLE_API_KEY, DATABASE_URL, MISTRAL_API_KEY) are injected at

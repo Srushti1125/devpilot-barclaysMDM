@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.deps import get_artifact_service, get_current_user, get_project_service
 from app.core.exceptions import AuthorisationError, ResourceNotFoundError, ValidationError
-from app.models import User
+from app.domain.models import User
 from app.schemas import ProjectCreate, ProjectOut, ProjectUpdate
 from app.services.artifact_service import ArtifactService
 from app.services.project_service import ProjectService

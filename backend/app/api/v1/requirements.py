@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, get_project_service
 from app.config import settings
 from app.core.exceptions import AuthorisationError, ResourceNotFoundError
-from app.models import AuditLog, Requirement, User
+from app.domain.models import AuditLog, Requirement, User
 from app.services.ai_engine import AIEngineClient
 from app.services.project_service import ProjectService
 

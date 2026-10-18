@@ -85,3 +85,24 @@ def test_read_requirement_detail(client, dev_headers, mock_ai_ingest):
     assert detail.status_code == 200
     assert detail.json()["filename"] == "api_rules.md"
     assert "ISO 8601" in detail.json()["content"]
+
+
+def test_ingest_persists_tree_nodes_linked_to_requirement(client, dev_headers, mock_ai_ingest, db_session):
+    """Tree nodes returned by ai-engine are stored under the requirement, parents preserved."""
+    from app.domain.models import DocTreeNode
+
+    project = client.post("/api/v1/projects", json={"name": "Tree Spec"}, headers=dev_headers).json()
+    project_id = project["id"]
+    files = {"file": ("reqs.md", io.BytesIO(b"# 1 Authentication\n## 1.1 Password Reset\nOTP."), "text/markdown")}
+    response = client.post(f"/api/v1/projects/{project_id}/requirements", files=files,
+                           data={"doc_type": "requirement"}, headers=dev_headers)
+    assert response.status_code == 201
+    requirement_id = response.json()["id"]
+
+    from app.domain.models import Requirement as R; print("REQS", [(r.id) for r in db_session.query(R).all()], requirement_id, db_session.bind.url)
+    rows = {r.id: r for r in db_session.query(DocTreeNode).filter(DocTreeNode.doc_id == requirement_id).all()}
+    assert set(rows) == {"n-root", "n-child"}
+    assert rows["n-child"].parent_id == "n-root"
+    assert rows["n-child"].project_id == project_id
+    assert rows["n-child"].text == "Reset via OTP."
+    assert rows["n-root"].content_hash == "c" * 64

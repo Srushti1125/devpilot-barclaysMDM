@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User
+from app.domain.models import User
 from app.security import token_subject
 from app.repositories.user_repo import UserRepository
 from app.repositories.project_repo import ProjectRepository

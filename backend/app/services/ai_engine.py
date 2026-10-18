@@ -37,9 +37,8 @@ class AIEngineClient:
             "requirement_text": requirement_text,
         })
 
-    async def ingest(self, file_path: str, project_id: str, doc_type: str):
-        return await self._request("POST", "/ingest", json={
-            "file_path": file_path,
-            "project_id": project_id,
-            "doc_type": doc_type,
-        })
+    async def ingest(self, file_path: str, project_id: str, doc_type: str, doc_id: str | None = None):
+        payload = {"file_path": file_path, "project_id": project_id, "doc_type": doc_type}
+        if doc_id:
+            payload["doc_id"] = doc_id  # the requirement id; ai-engine tags tree nodes and chunks with it
+        return await self._request("POST", "/ingest", json=payload)

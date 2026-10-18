@@ -8,7 +8,7 @@ import yaml
 
 from app.api.deps import get_artifact_service, get_current_user
 from app.core.exceptions import AuthorisationError, ResourceNotFoundError, ValidationError
-from app.models import User
+from app.domain.models import User
 from app.schemas import ArtifactOut, ArtifactUpdate, EvaluationCreate, GenerateRequest
 from app.services.ai_engine import AIEngineClient
 from app.services.artifact_service import ArtifactService

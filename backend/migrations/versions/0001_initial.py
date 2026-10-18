@@ -1,7 +1,7 @@
 """Create DevPilot application tables."""
 from alembic import op
 from app.database import Base
-from app import models  # noqa: F401
+from app.domain import models  # noqa: F401
 
 revision = "0001_initial"
 down_revision = None

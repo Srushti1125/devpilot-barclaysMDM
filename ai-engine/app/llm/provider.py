@@ -31,6 +31,8 @@ def get_llm(model_alias: str | None = None, temperature: float = 0.2):
 
     if model_alias.startswith("groq"):
         from langchain_groq import ChatGroq
+        if not settings.GROQ_API_KEY:
+            raise ValueError(f"GROQ_API_KEY is not set; cannot use model alias '{model_alias}'.")
         # Strip "groq-" prefix to get the actual Groq model name
         groq_model = model_alias.removeprefix("groq-")
         return ChatGroq(
@@ -49,5 +51,5 @@ def get_default_llm():
 
 
 def get_fallback_llm():
-    """Used only when primary generation exhausts its retries (Step 9)."""
+    """Used only when the primary provider fails or exhausts its retries (Step 9)."""
     return get_llm(settings.FALLBACK_LLM)
