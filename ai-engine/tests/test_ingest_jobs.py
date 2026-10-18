@@ -18,14 +18,14 @@ def _prepared(doc_id):
 
 
 def test_ingest_returns_202_and_job_completes(monkeypatch):
-    monkeypatch.setattr("app.main.prepare_document",
-                        lambda path, pid, dt, did=None: _prepared(did))
-    monkeypatch.setattr("app.main.index_chunks", lambda chunks: 2)
-    monkeypatch.setattr("app.main.node_to_dict",
-                        lambda node: {"node_id": node.node_id, "ordinal": node.ordinal,
-                                      "level": node.level, "title": node.title, "parent_id": None,
-                                      "page_start": node.page_start, "page_end": node.page_end,
-                                      "text": node.text, "low_structure": False})
+    monkeypatch.setattr("app.ingestion.pipeline.prepare_document",
+                         lambda path, pid, dt, did=None: _prepared(did))
+    monkeypatch.setattr("app.retrieval.vectorstore.index_chunks", lambda chunks: 2)
+    monkeypatch.setattr("app.ingestion.pipeline.node_to_dict",
+                         lambda node: {"node_id": node.node_id, "ordinal": node.ordinal,
+                                       "level": node.level, "title": node.title, "parent_id": None,
+                                       "page_start": node.page_start, "page_end": node.page_end,
+                                       "text": node.text, "low_structure": False})
     client = TestClient(app)
 
     accepted = client.post("/ingest", json={"file_path": "/tmp/x.pdf", "project_id": "p1",
@@ -46,7 +46,7 @@ def test_ingest_job_records_failure(monkeypatch):
     def boom(*a, **k):
         raise ValueError("unsupported file type")
 
-    monkeypatch.setattr("app.main.prepare_document", boom)
+    monkeypatch.setattr("app.ingestion.pipeline.prepare_document", boom)
     client = TestClient(app)
     job_id = client.post("/ingest", json={"file_path": "/tmp/x.exe", "project_id": "p1"}).json()["job_id"]
 

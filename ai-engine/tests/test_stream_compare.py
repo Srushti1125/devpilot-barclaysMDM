@@ -44,8 +44,6 @@ def test_generate_stream_emits_node_transitions_and_result(monkeypatch):
         {"finalize": {}},
     ]
     monkeypatch.setattr(sop_graph, "SOP_GRAPH", FakeGraph(updates))
-    import app.main as main_module
-    monkeypatch.setattr(main_module, "SOP_GRAPH", FakeGraph(updates))
 
     client = TestClient(app)
     resp = client.post("/generate/stream", json={"project_id": "p1", "artifact_type": "user_story",
@@ -67,8 +65,7 @@ def test_generate_stream_surfaces_errors(monkeypatch):
             raise RuntimeError("vector retrieval timed out")
             yield {}
 
-    import app.main as main_module
-    monkeypatch.setattr(main_module, "SOP_GRAPH", Exploding())
+    monkeypatch.setattr(sop_graph, "SOP_GRAPH", Exploding())
     client = TestClient(app)
     resp = client.post("/generate/stream", json={"project_id": "p1", "artifact_type": "user_story",
                                                  "requirement_text": "x"})
@@ -85,8 +82,7 @@ def test_compare_runs_both_aliases(monkeypatch):
             raise RuntimeError("gemini 429")
         return {**CANNED, "model_used": model_alias}
 
-    import app.main as main_module
-    monkeypatch.setattr(main_module, "run_sop_generation", fake_run)
+    monkeypatch.setattr(sop_graph, "run_sop_generation", fake_run)
 
     client = TestClient(app)
     resp = client.post("/generate/compare", json={"project_id": "p1", "artifact_type": "user_story",
@@ -100,9 +96,8 @@ def test_compare_runs_both_aliases(monkeypatch):
 
 
 def test_generate_persists_eval_fields(monkeypatch):
-    import app.main as main_module
-    monkeypatch.setattr(main_module, "run_sop_generation",
-                        lambda *a, **k: {**CANNED, "model_used": "groq-x"})
+    monkeypatch.setattr(sop_graph, "run_sop_generation",
+                         lambda *a, **k: {**CANNED, "model_used": "groq-x"})
     client = TestClient(app)
     resp = client.post("/generate", json={"project_id": "p1", "artifact_type": "user_story",
                                           "requirement_text": "x"})

@@ -28,7 +28,7 @@ def ingested(tmp_path, monkeypatch):
     """Ingest a document through the real endpoint; capture chunks instead of embedding them.
     §2.2.4: /ingest returns 202 with a job id; the terminal state carries the tree payload."""
     stored: list[Document] = []
-    monkeypatch.setattr(main, "index_chunks", lambda chunks: (stored.extend(chunks), len(chunks))[1])
+    monkeypatch.setattr("app.retrieval.vectorstore.index_chunks", lambda chunks: (stored.extend(chunks), len(chunks))[1])
     path = tmp_path / "reqs.md"
     path.write_text(DOC, encoding="utf-8")
     client = TestClient(main.app)
