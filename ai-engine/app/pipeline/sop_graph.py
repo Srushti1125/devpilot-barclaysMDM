@@ -54,6 +54,7 @@ class ArtifactState(TypedDict, total=False):
     project_id: str
     requirement_text: str
     model_alias: str
+    retrieval_mode: str | None
     context: str
     retrieval_trace: dict
     draft_raw: str
@@ -87,7 +88,12 @@ def _accumulate(usage: dict, add: dict) -> dict:
 
 def retrieve_node(state: ArtifactState) -> dict:
     """Fetch RAG context exactly once for the whole SOP run (§2.3.1 invariant 2)."""
-    result = retrieve_context(state["project_id"], state["requirement_text"])
+    retrieval_mode = state.get("retrieval_mode")
+    if retrieval_mode is None:
+        result = retrieve_context(state["project_id"], state["requirement_text"])
+    else:
+        result = retrieve_context(state["project_id"], state["requirement_text"],
+                                  retrieval_mode=retrieval_mode)
     return {"context": result.context, "retrieval_trace": result.trace}
 
 
@@ -154,22 +160,26 @@ def judge_score(requirement: str, artifact_json: str) -> tuple[float, str]:
 
 
 def qa_node(state: ArtifactState) -> dict:
-    """QA Engineer: schema compliance first (fast, free), then LLM-as-Judge."""
+    """QA Engineer: run schema validation before the LLM-as-Judge."""
     schema_cls = _get_schema(state["artifact_type"])
     raw_text = _strip_code_fences(state.get("draft_raw", ""))
+    from app.llm.parsers import get_parser
+    from app.pipeline.validators import LLMJudgeValidator, SchemaValidator, ValidationChain
 
-    if not format_compliance_score(raw_text, schema_cls):
+    try:
+        parsed = get_parser(schema_cls).parse(raw_text)
+    except Exception:
         return {
             "eval_score": 0.0,
             "critique": "Output does not conform to the required JSON schema.",
             "retry_count": state["retry_count"] + 1,
         }
-
-    from app.llm.parsers import get_parser
-
-    parsed = get_parser(schema_cls).parse(raw_text)
-    score, reasoning = judge_score(state["requirement_text"], raw_text)
-    new_retry = state["retry_count"] + (0 if score >= APPROVAL_THRESHOLD else 1)
+    judge = LLMJudgeValidator(APPROVAL_THRESHOLD)
+    chain = ValidationChain([SchemaValidator(schema_cls), judge])
+    passed, failures = chain.run(parsed.model_dump(), state["requirement_text"])
+    score = judge.score if judge.score is not None else 0.0
+    reasoning = "; ".join(failures) if failures else "All validators passed."
+    new_retry = state["retry_count"] + (0 if passed else 1)
     return {
         "final_artifact": parsed.model_dump(),
         "eval_score": round(score, 4),
@@ -210,12 +220,13 @@ SOP_GRAPH = build_sop_graph()
 
 
 def _initial_state(artifact_type: str, project_id: str, requirement_text: str,
-                   model_alias: str | None) -> ArtifactState:
+                   model_alias: str | None, retrieval_mode: str | None = None) -> ArtifactState:
     return {
         "artifact_type": artifact_type,
         "project_id": project_id,
         "requirement_text": requirement_text,
         "model_alias": model_alias or settings.DEFAULT_LLM,
+        "retrieval_mode": retrieval_mode,
         "context": "",
         "retrieval_trace": {},
         "draft_raw": "",
@@ -230,14 +241,22 @@ def _initial_state(artifact_type: str, project_id: str, requirement_text: str,
 
 
 def run_sop_generation(artifact_type: str, project_id: str, requirement_text: str,
-                       schema_cls, model_alias: str | None = None) -> dict:
+                       schema_cls, model_alias: str | None = None,
+                       retrieval_mode: str | None = None) -> dict:
     """Drop-in replacement for run_generation(); schema_cls kept for signature parity
     but resolved again from the registry (W-4: no classes in graph state)."""
-    final = SOP_GRAPH.invoke(_initial_state(artifact_type, project_id, requirement_text, model_alias))
+    final = SOP_GRAPH.invoke(_initial_state(artifact_type, project_id, requirement_text,
+                                            model_alias, retrieval_mode))
     if not final["final_artifact"]:
         raise RuntimeError("SOP graph produced no artifact after exhausting retries.")
     usage = dict(final.get("usage") or {})
-    usage.setdefault("total_cost_usd", 0.0)  # free tier
+    from app.tracking.cost import estimate_cost_usd
+    model_used = final.get("model_used") or final.get("model_alias") or settings.DEFAULT_LLM
+    usage["total_cost_usd"] = estimate_cost_usd(
+        model_used, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+    from app.events import GenerationEvent, publish
+    publish(GenerationEvent(project_id, artifact_type, final["eval_score"], model_used,
+                            final["retry_count"], usage))
     return {
         "artifact_type": artifact_type,
         "project_id": project_id,
@@ -248,5 +267,5 @@ def run_sop_generation(artifact_type: str, project_id: str, requirement_text: st
         "usage": usage,
         "eval_score": final["eval_score"],
         "retry_count": final["retry_count"],
-        "model_used": final.get("model_used") or final.get("model_alias") or settings.DEFAULT_LLM,
+        "model_used": model_used,
     }

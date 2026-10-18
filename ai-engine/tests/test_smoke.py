@@ -23,6 +23,7 @@ def test_prompt_loads_and_has_required_placeholders(artifact_type):
     rendered = prompt.format(
         requirement="dummy requirement",
         context="dummy context",
+        history="",
         repair_note="",
         format_instructions="dummy schema",
     )

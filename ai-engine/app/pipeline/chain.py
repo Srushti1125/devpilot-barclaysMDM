@@ -48,6 +48,7 @@ def retrieve_context(
     project_id: str,
     requirement_text: str,
     doc_type: str | None = "requirement",
+    retrieval_mode: str | None = None,
 ) -> RetrievalResult:
     """
     Single retrieval call per generation request. Callers run this ONCE and pass the context into
@@ -61,7 +62,8 @@ def retrieve_context(
         # without it, with_reranking returns the base retriever unchanged.
         return with_reranking(get_retriever(project_id, doc_type=doc_type)).invoke(requirement_text)
 
-    if settings.RETRIEVAL_MODE != "hybrid":
+    mode = retrieval_mode or settings.RETRIEVAL_MODE
+    if mode != "hybrid":
         docs = vector_search()
         return RetrievalResult(context=_format_docs(docs),
                                trace={"mode": "vector", "vector_hits": len(docs)})
@@ -80,6 +82,7 @@ def build_generation_chain(
     artifact_type: str,
     schema_cls,
     model_alias: str | None = None,
+    prompt_version: str = "latest",
 ):
     """
     Prompt | LLM chain. Context is an input, not fetched here, so building or
@@ -87,7 +90,7 @@ def build_generation_chain(
 
     Expected input keys: requirement, context, repair_note (optional).
     """
-    prompt, version_id = load_prompt(artifact_type)
+    prompt, version_id = load_prompt(artifact_type, prompt_version)
     llm = get_llm(model_alias)
     parser = get_parser(schema_cls)
 
@@ -98,6 +101,7 @@ def build_generation_chain(
             "requirement": x["requirement"],
             "context": x["context"],
             "repair_note": x.get("repair_note", ""),
+            "history": x.get("history", ""),
             "format_instructions": parser.get_format_instructions(),
         }
 

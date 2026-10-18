@@ -4,6 +4,7 @@ from app.schemas.architecture import Architecture
 from app.schemas.sprint_plan import SprintPlan
 from app.schemas.test_case import TestCaseList
 from app.schemas.user_story import UserStoryList
+from app.schemas.conversational import ConversationalResponse
 
 SCHEMA_REGISTRY = {
     "user_story": UserStoryList,
@@ -12,6 +13,7 @@ SCHEMA_REGISTRY = {
     "api_spec": ApiSpecList,
     "architecture": Architecture,
     "sprint_plan": SprintPlan,
+    "conversational": ConversationalResponse,
 }
 
 

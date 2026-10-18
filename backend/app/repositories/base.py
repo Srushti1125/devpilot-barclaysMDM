@@ -43,6 +43,9 @@ class BaseRepository(Generic[ModelT]):
     def commit(self) -> None:
         self.db.commit()
 
+    def rollback(self) -> None:
+        self.db.rollback()
+
     def refresh(self, entity: ModelT) -> ModelT:
         self.db.refresh(entity)
         return entity

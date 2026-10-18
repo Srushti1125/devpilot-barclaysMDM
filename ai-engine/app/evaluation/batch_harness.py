@@ -70,32 +70,28 @@ def run_batch_eval(project_id: str | None = None, retrieval_mode: str = "vector"
     if limit:
         rows = rows[:limit]
 
-    original_mode = settings.RETRIEVAL_MODE
-    settings.RETRIEVAL_MODE = retrieval_mode
     output_rows, latencies, fallbacks, audits = [], [], [], []
-    try:
-        for row in rows:
-            pid = project_id or row.get("project_id", "eval")
-            schema_cls = get_schema(row["artifact_type"])
-            start = time.monotonic()
-            result = run_sop_generation(row["artifact_type"], pid, row["question"], schema_cls)
-            latencies.append((time.monotonic() - start) * 1000)
-            trace = result.get("retrieval") or {}
-            if trace.get("fallback"):
-                fallbacks.append(trace["fallback"])
-            audits.append(audit_artifact(
-                {"text": _flatten_output(result["output"])},
-                {"text": row["ground_truth"]},
-                row["artifact_type"],
-            )["overall_similarity"])
-            output_rows.append({
-                "question": row["question"],
-                "answer": json.dumps(result["output"]),
-                "contexts": [result.get("context") or ""],
-                "ground_truth": row["ground_truth"],
-            })
-    finally:
-        settings.RETRIEVAL_MODE = original_mode
+    for row in rows:
+        pid = project_id or row.get("project_id", "eval")
+        schema_cls = get_schema(row["artifact_type"])
+        start = time.monotonic()
+        result = run_sop_generation(row["artifact_type"], pid, row["question"], schema_cls,
+                                    retrieval_mode=retrieval_mode)
+        latencies.append((time.monotonic() - start) * 1000)
+        trace = result.get("retrieval") or {}
+        if trace.get("fallback"):
+            fallbacks.append(trace["fallback"])
+        audits.append(audit_artifact(
+            {"text": _flatten_output(result["output"])},
+            {"text": row["ground_truth"]},
+            row["artifact_type"],
+        )["overall_similarity"])
+        output_rows.append({
+            "question": row["question"],
+            "answer": json.dumps(result["output"]),
+            "contexts": [result.get("context") or ""],
+            "ground_truth": row["ground_truth"],
+        })
 
     report: dict = {
         "retrieval_mode": retrieval_mode,
@@ -127,7 +123,7 @@ def run_batch_eval(project_id: str | None = None, retrieval_mode: str = "vector"
         )
         report["ragas"] = scores.to_pandas().mean(numeric_only=True).to_dict()
 
-    out = report_path or REPORT_PATH
+    out = Path(report_path) if report_path is not None else REPORT_PATH
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2))
     return report

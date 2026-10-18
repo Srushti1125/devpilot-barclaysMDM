@@ -39,7 +39,8 @@ langchain-cohere>=0.3,<0.4
 
 # --- Offline evaluation (§4.2 Layers 2–3) ---
 ragas>=0.2,<0.3                # openevals is NOT used: it pins langchain-core 1.x (conflict).
-datasets>=2.20,<6              #   Judge is implemented inline with openevals-compatible contract.
+datasets>=2.20,<4              #   Judge is implemented inline with openevals-compatible contract.
+pyarrow>=15,<18                #   datasets pulls pyarrow; >=18 requires numpy>=2 and breaks the numpy<2 pin above
 
 # --- Token utilities ---
 tiktoken==0.8.0

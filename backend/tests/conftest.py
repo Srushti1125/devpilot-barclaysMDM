@@ -19,6 +19,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app import main as main_module
 from app.main import app
 from app.domain.models import User, Project, ProjectMember
 from app.security import hash_password, create_access_token
@@ -54,6 +55,16 @@ def setup_database():
     Base.metadata.create_all(bind=test_engine)
     yield
     Base.metadata.drop_all(bind=test_engine)
+
+
+@pytest.fixture(autouse=True)
+def isolate_rate_limiter():
+    """Keep process-local request counters from leaking across test cases."""
+    with main_module._rate_lock:
+        main_module._rate_windows.clear()
+    yield
+    with main_module._rate_lock:
+        main_module._rate_windows.clear()
 
 
 @pytest.fixture
@@ -201,7 +212,8 @@ def tester_headers(tester_user):
 
 @pytest.fixture
 def mock_ai_generate(monkeypatch):
-    """Mocks AIEngineClient.generate to return standard structured SDLC artifacts."""
+    """Mocks AIEngineClient.generate to return standard structured SDLC artifacts,
+    including the SOP telemetry fields (§3.2.2/§6.1)."""
     async def fake_generate(self, project_id, artifact_type, requirement_text):
         return {
             "request_id": "test-req-123",
@@ -216,6 +228,9 @@ def mock_ai_generate(monkeypatch):
             },
             "usage": {"prompt_tokens": 50, "completion_tokens": 100, "total_tokens": 150},
             "latency_ms": 42,
+            "eval_score": 0.91,
+            "retry_count": 1,
+            "model_used": "groq-test-model",
         }
     monkeypatch.setattr(AIEngineClient, "generate", fake_generate)
     return fake_generate
@@ -223,12 +238,15 @@ def mock_ai_generate(monkeypatch):
 
 @pytest.fixture
 def mock_ai_ingest(monkeypatch):
-    """Mocks AIEngineClient.ingest for requirement ingestion."""
+    """Mocks the §2.2.4 job contract end to end: ingest() acknowledges with a job id,
+    ingest_status() returns the terminal payload the backend finalizes on first poll."""
     async def fake_ingest(self, file_path, project_id, doc_type="requirement", doc_id=None):
+        return {"job_id": f"engine-job-{doc_id}", "status": "processing"}
+
+    async def fake_ingest_status(self, engine_job_id):
         return {
-            "status": "indexed",
+            "status": "done",
             "chunks_indexed": 5,
-            "doc_id": doc_id,
             "content_hash": "c" * 64,
             "tree_nodes": [
                 {"node_id": "n-root", "parent_id": None, "ordinal": "0", "level": 1,
@@ -237,8 +255,21 @@ def mock_ai_ingest(monkeypatch):
                  "title": "1.1 Password Reset", "page_start": 1, "page_end": 1,
                  "text": "Reset via OTP.", "low_structure": False},
             ],
-            "entities": ["PaymentService", "Account"],
-            "constraints": ["Max transaction $10,000"],
         }
     monkeypatch.setattr(AIEngineClient, "ingest", fake_ingest)
-    return fake_ingest
+    monkeypatch.setattr(AIEngineClient, "ingest_status", fake_ingest_status)
+    return fake_ingest, fake_ingest_status
+
+
+@pytest.fixture
+def mock_ai_ingest_failed(monkeypatch):
+    """Job kicks off cleanly but the engine job fails — status path."""
+    async def fake_ingest(self, file_path, project_id, doc_type="requirement", doc_id=None):
+        return {"job_id": "engine-job-bad", "status": "processing"}
+
+    async def fake_status(self, engine_job_id):
+        return {"status": "failed", "error": "unsupported file type", "error_type": "invalid_input"}
+
+    monkeypatch.setattr(AIEngineClient, "ingest", fake_ingest)
+    monkeypatch.setattr(AIEngineClient, "ingest_status", fake_status)
+    return fake_status

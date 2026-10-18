@@ -9,6 +9,7 @@
 #   ./run_tests.sh integration    # Run API integration tests only
 #   ./run_tests.sh contract       # Run OpenAPI contract tests only
 #   ./run_tests.sh coverage       # Run all tests with code coverage report
+#   ./run_tests.sh all -q         # Pass additional pytest arguments after the mode
 # ==============================================================================
 
 set -euo pipefail
@@ -26,6 +27,10 @@ else
 fi
 
 MODE="${1:-all}"
+if [ "$#" -gt 0 ]; then
+    shift
+fi
+PYTEST_ARGS=("$@")
 
 echo "=========================================================="
 echo " DevPilot Backend Test Suite — Mode: $MODE"
@@ -34,24 +39,24 @@ echo "=========================================================="
 
 case "$MODE" in
     unit)
-        $PYTEST_BIN tests/unit/ -v
+        "$PYTEST_BIN" tests/unit/ -v "${PYTEST_ARGS[@]}"
         ;;
     repo|repositories)
-        $PYTEST_BIN tests/repositories/ -v
+        "$PYTEST_BIN" tests/repositories/ -v "${PYTEST_ARGS[@]}"
         ;;
     integration)
-        $PYTEST_BIN tests/integration/ -v
+        "$PYTEST_BIN" tests/integration/ -v "${PYTEST_ARGS[@]}"
         ;;
     contract)
-        $PYTEST_BIN tests/contract/ -v
+        "$PYTEST_BIN" tests/contract/ -v "${PYTEST_ARGS[@]}"
         ;;
     coverage)
-        $PYTEST_BIN tests/ --cov=app --cov-report=term-missing --cov-report=html:var/coverage_html
+        "$PYTEST_BIN" tests/ --cov=app --cov-report=term-missing --cov-report=html:var/coverage_html "${PYTEST_ARGS[@]}"
         echo ""
         echo "HTML coverage report generated at: var/coverage_html/index.html"
         ;;
     all)
-        $PYTEST_BIN tests/ -v
+        "$PYTEST_BIN" tests/ -v "${PYTEST_ARGS[@]}"
         ;;
     *)
         echo "Unknown mode: $MODE"

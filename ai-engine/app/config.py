@@ -39,6 +39,7 @@ class Settings:
 
     # --- Optional fallback provider ---
     MISTRAL_API_KEY: str = os.environ.get("MISTRAL_API_KEY", "")
+    OPENAI_API_KEY: str = os.environ.get("OPENAI_API_KEY", "")
 
     # --- Cloud reranking (IMPLEMENTATION.draft.md §2.2.3; graceful without key) ---
     COHERE_API_KEY: str = os.environ.get("COHERE_API_KEY", "")

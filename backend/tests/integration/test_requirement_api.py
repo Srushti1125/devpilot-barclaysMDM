@@ -13,6 +13,7 @@ import io
 
 
 def test_ingest_requirement_text_file(client, dev_headers, mock_ai_ingest):
+    """§2.2.4: upload acknowledges with 202 + job; polling the job finalizes indexing."""
     # Create project
     project = client.post("/api/v1/projects", json={"name": "Banking Spec"}, headers=dev_headers).json()
     project_id = project["id"]
@@ -27,16 +28,21 @@ def test_ingest_requirement_text_file(client, dev_headers, mock_ai_ingest):
         headers=dev_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     data = response.json()
     assert data["filename"] == "requirements.txt"
     assert data["project_id"] == project_id
-    assert data["chunks_indexed"] == 5
+    assert data["status"] == "processing"
+    job = client.get(f"/api/v1/ingest-jobs/{data['ingest_job_id']}", headers=dev_headers).json()
+    assert job["status"] == "done"
+    assert job["chunks_indexed"] == 5
+    assert job["requirement_id"] == data["id"]
 
-    # Verify requirement appears in list
+    # Verify requirement appears in list with indexed chunks
     req_list = client.get(f"/api/v1/projects/{project_id}/requirements", headers=dev_headers)
     assert req_list.status_code == 200
     assert len(req_list.json()) == 1
+    assert req_list.json()[0]["chunks_indexed"] == 5
 
 
 def test_ingest_unsupported_file_type_rejected(client, dev_headers):
@@ -87,8 +93,8 @@ def test_read_requirement_detail(client, dev_headers, mock_ai_ingest):
     assert "ISO 8601" in detail.json()["content"]
 
 
-def test_ingest_persists_tree_nodes_linked_to_requirement(client, dev_headers, mock_ai_ingest, db_session):
-    """Tree nodes returned by ai-engine are stored under the requirement, parents preserved."""
+def test_ingest_persists_tree_nodes_on_job_completion(client, dev_headers, mock_ai_ingest, db_session):
+    """Tree nodes from the finished engine job are stored under the requirement, parents preserved."""
     from app.domain.models import DocTreeNode
 
     project = client.post("/api/v1/projects", json={"name": "Tree Spec"}, headers=dev_headers).json()
@@ -96,13 +102,34 @@ def test_ingest_persists_tree_nodes_linked_to_requirement(client, dev_headers, m
     files = {"file": ("reqs.md", io.BytesIO(b"# 1 Authentication\n## 1.1 Password Reset\nOTP."), "text/markdown")}
     response = client.post(f"/api/v1/projects/{project_id}/requirements", files=files,
                            data={"doc_type": "requirement"}, headers=dev_headers)
-    assert response.status_code == 201
+    assert response.status_code == 202
     requirement_id = response.json()["id"]
 
-    from app.domain.models import Requirement as R; print("REQS", [(r.id) for r in db_session.query(R).all()], requirement_id, db_session.bind.url)
+    # Nodes land only after the job completes; polling is the trigger (§2.2.4/§6.2).
+    before = db_session.query(DocTreeNode).filter(DocTreeNode.doc_id == requirement_id).count()
+    assert before == 0
+    job = client.get(f"/api/v1/ingest-jobs/{response.json()['ingest_job_id']}", headers=dev_headers)
+    assert job.status_code == 200
+    assert job.json()["status"] == "done"
+
     rows = {r.id: r for r in db_session.query(DocTreeNode).filter(DocTreeNode.doc_id == requirement_id).all()}
     assert set(rows) == {"n-root", "n-child"}
     assert rows["n-child"].parent_id == "n-root"
     assert rows["n-child"].project_id == project_id
     assert rows["n-child"].text == "Reset via OTP."
     assert rows["n-root"].content_hash == "c" * 64
+
+    # Re-polling a done job does not duplicate rows (idempotent finalization).
+    client.get(f"/api/v1/ingest-jobs/{job.json()['id']}", headers=dev_headers)
+    assert db_session.query(DocTreeNode).filter(DocTreeNode.doc_id == requirement_id).count() == 2
+
+
+def test_ingest_job_failure_is_recorded(client, dev_headers, mock_ai_ingest_failed):
+    project = client.post("/api/v1/projects", json={"name": "Fail Spec"}, headers=dev_headers).json()
+    files = {"file": ("broken.pdf", io.BytesIO(b"%PDF-1.4 broken"), "application/pdf")}
+    response = client.post(f"/api/v1/projects/{project['id']}/requirements", files=files, headers=dev_headers)
+    assert response.status_code == 202
+
+    job = client.get(f"/api/v1/ingest-jobs/{response.json()['ingest_job_id']}", headers=dev_headers).json()
+    assert job["status"] == "failed"
+    assert "unsupported" in job["error_message"]

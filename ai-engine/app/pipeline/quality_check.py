@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 
@@ -6,7 +5,9 @@ from langchain_core.exceptions import OutputParserException
 
 logger = logging.getLogger("devpilot.quality")
 
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+# (?:...)|(?:...) grouping is explicit; [ \t]* (not \s*) keeps the alternation linear —
+# \s* at line boundaries can scan across newlines and backtrack super-linearly (S8786/S5850).
+_CODE_FENCE_RE = re.compile(r"^(?:```(?:json)?[ \t]*|[ \t]*```$)", re.MULTILINE)
 
 
 def _strip_code_fences(text: str) -> str:
@@ -17,7 +18,8 @@ def _extract_text(raw) -> str:
     return raw.content if hasattr(raw, "content") else str(raw)
 
 
-_PARSE_ERRORS = (OutputParserException, ValueError, json.JSONDecodeError)
+# json.JSONDecodeError subclasses ValueError — listing both would be redundant (S5713).
+_PARSE_ERRORS = (OutputParserException, ValueError)
 
 
 def generate_with_quality_check(

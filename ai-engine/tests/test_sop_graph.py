@@ -14,11 +14,16 @@ from app.schemas.registry import get_schema
 
 VALID_STORY = {
     "stories": [{
+        "id": "US-A1B2C3",
         "title": "Password reset via OTP",
         "story": "As a customer, I want to reset my password via OTP so that I can regain access.",
+        "actor": "Customer",
         "priority": "High",
+        "story_points": 3,
         "category": "Authentication",
+        "acceptance_criteria_summary": ["A valid reset link allows password reset."],
         "dependencies": [],
+        "sprint_candidate": 1,
     }],
 }
 

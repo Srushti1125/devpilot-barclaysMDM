@@ -15,9 +15,14 @@ from app.repositories.project_repo import ProjectRepository
 from app.repositories.requirement_repo import RequirementRepository
 from app.repositories.artifact_repo import ArtifactRepository
 from app.repositories.audit_repo import AuditRepository
+from app.repositories.chat_repo import ChatRepository
+from app.repositories.history_repo import GenerationHistoryRepository
 from app.services.auth_service import AuthService
 from app.services.project_service import ProjectService
 from app.services.artifact_service import ArtifactService
+from app.services.case_study_service import CaseStudyService
+from app.services.chat_service import ChatService
+from app.services.project_stats_service import ProjectStatsService
 from app.services.ai_engine import AIEngineClient
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -74,4 +79,24 @@ def get_artifact_service(
         AuditRepository(db),
         project_service,
         AIEngineClient(),
+    )
+
+
+def get_chat_service(db: Session = Depends(get_db)) -> ChatService:
+    return ChatService(ChatRepository(db), AuditRepository(db), AIEngineClient())
+
+
+def get_project_stats_service(db: Session = Depends(get_db)) -> ProjectStatsService:
+    return ProjectStatsService(ArtifactRepository(db), GenerationHistoryRepository(db))
+
+
+def get_case_study_service(
+    db: Session = Depends(get_db),
+    artifact_service: ArtifactService = Depends(get_artifact_service),
+) -> CaseStudyService:
+    return CaseStudyService(
+        RequirementRepository(db),
+        GenerationHistoryRepository(db),
+        AuditRepository(db),
+        artifact_service,
     )

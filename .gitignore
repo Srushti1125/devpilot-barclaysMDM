@@ -59,6 +59,9 @@ pnpm-debug.log*
 # ==============================
 backend/devpilot.db
 backend/var/
+ai-engine/devpilot.db
+# Offline eval harness output (IMPLEMENTATION.draft.md §4.2 Layer 2)
+ai-engine/eval_data/eval_report*.json
 *.sqlite
 *.sqlite3
 

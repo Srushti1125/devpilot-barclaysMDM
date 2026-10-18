@@ -7,9 +7,8 @@ on:
 
 jobs:
   test:
-    name: AI engine tests
+    name: ai-engine tests (offline suite)
     runs-on: ubuntu-latest
-    # docling pulls ~2.5 GB of torch; installs are slow even with a warm pip cache.
     timeout-minutes: 40
 
     steps:
@@ -21,28 +20,41 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: ai-engine/requirements-dev.txt
+
+      - name: Cache Docling/HuggingFace model downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            ~/.cache/docling
+          key: ai-engine-models-${{ hashFiles('ai-engine/requirements.txt') }}
 
       - name: Install dependencies
+        # docling pulls ~2.5 GB of torch; first run also fetches layout models.
+        # The suite itself is keyless — the engine only needs the provider
+        # credentials at generation time, not import time.
         run: |
           python -m pip install --upgrade pip
           pip install -r ai-engine/requirements-dev.txt
 
       - name: Run AI Engine Test Suite
         working-directory: ai-engine
-        # Passes with zero API keys: no provider call happens at import time and
-        # settings.validate() is not executed by the suite (see app/config.py).
-        run: pytest tests/ -q --junitxml=junit.xml
+        run: ./run_tests.sh coverage --junitxml=junit-ai.xml --cov-report=xml
 
       - name: Add results to workflow summary
         if: always()
         working-directory: ai-engine
         run: |
-          python -c 'import os, xml.etree.ElementTree as ET; p="junit.xml"; root=ET.parse(p).getroot() if os.path.exists(p) else None; suites=[root] if root is not None and root.tag == "testsuite" else list(root or []); tests=sum(int(s.get("tests", 0)) for s in suites); failures=sum(int(s.get("failures", 0))+int(s.get("errors", 0)) for s in suites); skipped=sum(int(s.get("skipped", 0)) for s in suites); f=open(os.environ["GITHUB_STEP_SUMMARY"],"a"); f.write(chr(10).join(["## AI engine validation results", "", "| Tests | Failures/errors | Skipped |", "|---:|---:|---:|", "| %d | %d | %d |" % (tests, failures, skipped), "", "This workflow reports validation results. Merge requirements are configured separately in repository settings.", ""])); f.close()'
+          python -c 'import os, xml.etree.ElementTree as ET; p="junit-ai.xml"; root=ET.parse(p).getroot() if os.path.exists(p) else None; suites=[root] if root is not None and root.tag == "testsuite" else list(root or []); tests=sum(int(s.get("tests", 0)) for s in suites); failures=sum(int(s.get("failures", 0))+int(s.get("errors", 0)) for s in suites); skipped=sum(int(s.get("skipped", 0)) for s in suites); cov=ET.parse("coverage.xml").getroot() if os.path.exists("coverage.xml") else None; pct=float(cov.get("line-rate", 0))*100 if cov is not None else 0; f=open(os.environ["GITHUB_STEP_SUMMARY"],"a"); f.write(chr(10).join(["## AI engine validation results", "", "| Tests | Failures/errors | Skipped | Line coverage |", "|---:|---:|---:|---:|", "| %d | %d | %d | %.1f%% |" % (tests, failures, skipped, pct), ""])); f.close()'
 
-      - name: Upload test report artifact
+      - name: Upload JUnit artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ai-engine-test-report
-          path: ai-engine/junit.xml
+          path: |
+            ai-engine/junit-ai.xml
+            ai-engine/coverage.xml
+            ai-engine/var/coverage_html
           if-no-files-found: warn

@@ -7,7 +7,7 @@ auto-discovers them via a single `import app.domain.models` in env.py.
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -141,6 +141,17 @@ class GenerationHistory(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     model_used: Mapped[str | None] = mapped_column(String(80), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_utc)
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey(PROJECTS_ID_FK, ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey(USERS_ID_FK, ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(10))
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now_utc, index=True)
 
 
 # ── Ingestion jobs ────────────────────────────────────────────────────────────

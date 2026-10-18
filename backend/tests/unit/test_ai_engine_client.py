@@ -87,3 +87,52 @@ async def test_invalid_upstream_json_maps_to_502(monkeypatch):
 
     assert error.value.status_code == 502
     assert error.value.detail == "AI engine returned an invalid response"
+
+
+@pytest.mark.asyncio
+async def test_ingest_kicks_off_job_with_doc_id(monkeypatch):
+    fake = FakeAsyncClient(response=httpx.Response(
+        202, json={"job_id": "j-1", "status": "processing"},
+        request=httpx.Request("POST", "http://ai/ingest"),
+    ))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: fake)
+
+    result = await AIEngineClient("http://ai/").ingest("/tmp/x.pdf", "p1", "requirement", doc_id="r-9")
+
+    assert result == {"job_id": "j-1", "status": "processing"}
+    assert fake.request_args[2]["json"]["doc_id"] == "r-9"
+
+
+@pytest.mark.asyncio
+async def test_ingest_status_lost_job_maps_to_failed(monkeypatch):
+    """Engine restart evicts the job → surface as terminal failure, not a 502 to the poller."""
+    fake = FakeAsyncClient(response=httpx.Response(
+        404, text="no such job", request=httpx.Request("GET", "http://ai/ingest/j-404"),
+    ))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: fake)
+
+    state = await AIEngineClient("http://ai").ingest_status("j-404")
+    assert state["status"] == "failed"
+    assert state["error_type"] == "job_not_found"
+
+
+@pytest.mark.asyncio
+async def test_ingest_status_propagates_unreachable_engine(monkeypatch):
+    fake = FakeAsyncClient(error=httpx.ConnectError("down"))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: fake)
+
+    with pytest.raises(HTTPException) as error:
+        await AIEngineClient("http://ai").ingest_status("j-1")
+    assert error.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_evaluate_batch_sends_mode(monkeypatch):
+    fake = FakeAsyncClient(response=httpx.Response(
+        200, json={"n_examples": 50}, request=httpx.Request("POST", "http://ai/evaluate/batch"),
+    ))
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: fake)
+
+    result = await AIEngineClient("http://ai").evaluate_batch("p1", retrieval_mode="hybrid")
+    assert result == {"n_examples": 50}
+    assert fake.request_args[2]["params"] == {"retrieval_mode": "hybrid", "project_id": "p1"}

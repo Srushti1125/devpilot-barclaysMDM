@@ -60,7 +60,15 @@ def test_batch_harness_reports_modes_and_latency(monkeypatch, tmp_path):
         "usage": {"total_tokens": 5}, "eval_score": 0.9, "retry_count": 0,
         "model_used": "fake",
     }
-    monkeypatch.setattr("app.pipeline.sop_graph.run_sop_generation", lambda *a, **k: fake_result)
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(kwargs)
+        return fake_result
+
+    monkeypatch.setattr("app.pipeline.sop_graph.run_sop_generation", fake_run)
+    from app.config import settings
+    original_mode = settings.RETRIEVAL_MODE
 
     report = batch_harness.run_batch_eval(retrieval_mode="hybrid", use_ragas=False,
                                           limit=3, report_path=tmp_path / "report.json")
@@ -69,9 +77,10 @@ def test_batch_harness_reports_modes_and_latency(monkeypatch, tmp_path):
     assert report["latency_ms"]["p95"] >= report["latency_ms"]["p50"]
     assert report["tree_fallback_rate"] == 0.0
     assert "ragas" not in report
-    # §2.3.6: the mode is restored after the run.
-    from app.config import settings
-    assert settings.RETRIEVAL_MODE in ("vector", "hybrid")
+    assert len(calls) == 3
+    assert all(call["retrieval_mode"] == "hybrid" for call in calls)
+    # The shared mode is left untouched; this evaluation's mode is passed per call.
+    assert settings.RETRIEVAL_MODE == original_mode
     assert (tmp_path / "report.json").exists()
 
 
