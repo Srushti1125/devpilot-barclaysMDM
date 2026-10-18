@@ -19,6 +19,10 @@ class AIEngineClient:
             raise HTTPException(status_code=502, detail=f"AI engine returned {exc.response.status_code}: {detail}") from exc
         except httpx.RequestError as exc:
             raise HTTPException(status_code=503, detail="AI engine is unavailable") from exc
+        except ValueError as exc:
+            # Successful HTTP responses can still contain invalid or non-JSON
+            # bodies. Report this as an upstream failure, not an unhandled 500.
+            raise HTTPException(status_code=502, detail="AI engine returned an invalid response") from exc
 
     async def health(self):
         return await self._request("GET", "/health")

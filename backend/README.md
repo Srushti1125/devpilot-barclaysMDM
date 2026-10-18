@@ -31,4 +31,6 @@ Access tokens are bearer JWTs. Users receive the `member` global role on registr
 
 ## Tests
 
-Install `pytest` and `httpx`, then run `pytest -q`. The API tests use an isolated in-memory SQLite database and stub the AI engine generation call.
+Install the development dependencies with `pip install -r requirements-dev.txt`, then run `./run_tests.sh` (or `pytest -q`). The suite is split into `unit`, `repo`, `integration`, and `contract` groups; `./run_tests.sh coverage` writes a coverage report under `var/coverage_html`. API tests use an isolated in-memory SQLite database and stub AI engine calls. Unit tests cover the backend's AI client HTTP contract without contacting a running AI engine.
+
+GitHub Actions runs the backend suite on every push and pull request, publishes JUnit and coverage XML as an artifact, and summarizes test and line-coverage results in the workflow run. A separate PostgreSQL job applies Alembic migrations and runs repository, API integration, and contract tests against a disposable PostgreSQL database. The workflow reports validation status; whether a passing check is required before merge is controlled separately by repository branch-protection settings.

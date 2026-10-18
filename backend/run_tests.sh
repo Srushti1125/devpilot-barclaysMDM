@@ -3,7 +3,7 @@
 # DevPilot Backend Automated Test Runner
 #
 # Usage:
-#   ./run_tests.sh                # Run all 78 tests
+#   ./run_tests.sh                # Run all backend tests
 #   ./run_tests.sh unit           # Run unit tests only
 #   ./run_tests.sh repo           # Run repository tests only
 #   ./run_tests.sh integration    # Run API integration tests only

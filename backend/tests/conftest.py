@@ -11,6 +11,7 @@ Provides:
 """
 
 import uuid
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -32,12 +33,17 @@ from app.services.project_service import ProjectService
 from app.services.artifact_service import ArtifactService
 
 
-# In-memory SQLite database for test speed and complete isolation
-test_engine = create_engine(
-    "sqlite://",
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
+# SQLite keeps local unit tests fast; CI also runs the API and repository tests
+# against an explicitly named disposable PostgreSQL test database.
+test_database_url = os.getenv("TEST_DATABASE_URL", "sqlite://")
+if test_database_url.startswith("sqlite"):
+    test_engine = create_engine(
+        test_database_url,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+else:
+    test_engine = create_engine(test_database_url, pool_pre_ping=True)
 TestingSessionLocal = sessionmaker(bind=test_engine, autoflush=False, expire_on_commit=False)
 
 
