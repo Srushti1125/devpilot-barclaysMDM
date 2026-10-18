@@ -42,6 +42,7 @@ class ArtifactService:
         artifact_type: str,
         requirement_text: str,
         user: User,
+        requirement_id: str | None = None,
     ) -> Artifact:
         self.project_service.get_project_or_fail(project_id, user, write=True)
 
@@ -72,6 +73,10 @@ class ArtifactService:
             usage=result.get("usage") or {},
             latency_ms=result.get("latency_ms", 0),
             requirement_text=requirement_text,
+            requirement_id=requirement_id,
+            eval_score=result.get("eval_score"),
+            retry_count=result.get("retry_count", 0),
+            model_used=result.get("model_used"),
         )
         self.artifact_repo.add_history(history)
 
@@ -132,6 +137,10 @@ class ArtifactService:
                 "prompt_version": h.prompt_version,
                 "usage": h.usage,
                 "latency_ms": h.latency_ms,
+                "requirement_id": h.requirement_id,
+                "eval_score": h.eval_score,
+                "retry_count": h.retry_count,
+                "model_used": h.model_used,
                 "created_at": h.created_at,
             }
             for h in entries

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.deps import get_auth_service, get_current_user
 from app.core.exceptions import AuthenticationError, ConflictError
 from app.domain.models import User
-from app.schemas import LoginRequest, Token, UserCreate, UserOut
+from app.domain.schemas import LoginRequest, Token, UserCreate, UserOut
 from app.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])

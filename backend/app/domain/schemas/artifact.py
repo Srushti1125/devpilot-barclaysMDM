@@ -1,12 +1,13 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class GenerateRequest(BaseModel):
     artifact_type: str = Field(min_length=1, max_length=80)
     requirement_text: str = Field(min_length=1, max_length=100000)
+    requirement_id: str | None = Field(default=None, max_length=36)
 
     @field_validator("requirement_text")
     @classmethod
@@ -22,6 +23,8 @@ class ArtifactUpdate(BaseModel):
 
 
 class ArtifactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     project_id: str
     created_by: str
