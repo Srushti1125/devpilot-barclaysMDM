@@ -1,29 +1,6 @@
-from datetime import datetime, timedelta, timezone
-from jose import JWTError, jwt
-from pwdlib import PasswordHash
-from app.config import settings
-
-ALGORITHM = "HS256"
-password_hash = PasswordHash.recommended()
-
-
-def hash_password(password: str) -> str:
-    return password_hash.hash(password)
-
-
-def verify_password(password: str, hashed: str) -> bool:
-    return password_hash.verify(password, hashed)
-
-
-def create_access_token(subject: str) -> str:
-    expires = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
-    return jwt.encode({"sub": subject, "exp": expires}, settings.jwt_secret_key, algorithm=ALGORITHM)
-
-
-def token_subject(token: str) -> str | None:
-    try:
-        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[ALGORITHM])
-        return payload.get("sub")
-    except JWTError:
-        return None
-
+"""
+Compatibility shim (W-6). JWT + password primitives live in app.core.security.
+Re-exported so main.py / deps.py / tests share one implementation.
+"""
+from app.core.security import (ALGORITHM, create_access_token, decode_token_subject,  # noqa: F401
+                               hash_password, token_subject, verify_password)

@@ -1,14 +1,13 @@
-name: Backend Tests & Quality Gate
+name: Backend Test Reporting
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
-    name: Pytest & Coverage (70%+ Target)
+    name: Backend tests and coverage report
     runs-on: ubuntu-latest
 
     steps:
@@ -20,6 +19,7 @@ jobs:
         with:
           python-version: "3.11"
           cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
 
       - name: Install dependencies
         run: |
@@ -29,11 +29,67 @@ jobs:
       - name: Run Backend Test Suite with Coverage
         working-directory: backend
         run: |
-          pytest tests/ --cov=app --cov-report=term-missing --cov-report=xml --cov-fail-under=70
+          ./run_tests.sh coverage --junitxml=junit.xml --cov-report=xml
+
+      - name: Add results to workflow summary
+        if: always()
+        working-directory: backend
+        run: |
+          python -c 'import os, xml.etree.ElementTree as ET; p="junit.xml"; root=ET.parse(p).getroot() if os.path.exists(p) else None; suites=[root] if root is not None and root.tag == "testsuite" else list(root or []); tests=sum(int(s.get("tests", 0)) for s in suites); failures=sum(int(s.get("failures", 0))+int(s.get("errors", 0)) for s in suites); skipped=sum(int(s.get("skipped", 0)) for s in suites); cov=ET.parse("coverage.xml").getroot() if os.path.exists("coverage.xml") else None; pct=float(cov.get("line-rate", 0))*100 if cov is not None else 0; f=open(os.environ["GITHUB_STEP_SUMMARY"],"a"); f.write(chr(10).join(["## Backend validation results", "", "| Tests | Failures/errors | Skipped | Line coverage |", "|---:|---:|---:|---:|", "| %d | %d | %d | %.1f%% |" % (tests, failures, skipped, pct), "", "This workflow reports validation results. Merge requirements are configured separately in repository settings.", ""])); f.close()'
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-coverage-report
-          path: backend/coverage.xml
+          path: |
+            backend/coverage.xml
+            backend/junit.xml
+          if-no-files-found: warn
+
+  postgres-integration:
+    name: PostgreSQL integration and migration check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: devpilot
+          POSTGRES_PASSWORD: devpilot
+          POSTGRES_DB: devpilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U devpilot -d devpilot_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://devpilot:devpilot@localhost:5432/devpilot_test
+      TEST_DATABASE_URL: postgresql+psycopg://devpilot:devpilot@localhost:5432/devpilot_test
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+
+      - name: Apply and verify PostgreSQL migrations
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          alembic current
+
+      - name: Run repository and API integration tests on PostgreSQL
+        working-directory: backend
+        run: |
+          pytest tests/repositories/ tests/integration/ tests/contract/ -q

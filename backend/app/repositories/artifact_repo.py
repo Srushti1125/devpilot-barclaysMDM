@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.models import Artifact, Evaluation, GenerationHistory
@@ -16,6 +16,14 @@ class ArtifactRepository(BaseRepository[Artifact]):
             .order_by(Artifact.created_at.desc())
         )
         return list(self.db.scalars(stmt))
+
+    def counts_by_type(self, project_id: str) -> dict[str, int]:
+        rows = self.db.execute(
+            select(Artifact.artifact_type, func.count(Artifact.id))
+            .where(Artifact.project_id == project_id)
+            .group_by(Artifact.artifact_type)
+        ).all()
+        return dict(rows)
 
     def add_history(self, entry: GenerationHistory) -> GenerationHistory:
         self.db.add(entry)

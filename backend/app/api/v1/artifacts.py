@@ -2,15 +2,18 @@
 Artifact generation, update, evaluation, and export API endpoints.
 """
 
+import io
 import json
+import zipfile
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-import yaml
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_artifact_service, get_current_user
+from app.api.deps import get_artifact_service, get_current_user, get_db
 from app.core.exceptions import AuthorisationError, ResourceNotFoundError, ValidationError
-from app.models import User
-from app.schemas import ArtifactOut, ArtifactUpdate, EvaluationCreate, GenerateRequest
+from app.domain.models import Requirement, User
+from app.domain.schemas import ArtifactOut, ArtifactUpdate, EvaluationCreate, GenerateRequest
 from app.services.ai_engine import AIEngineClient
+from app.services.artifact_export import render_artifact_export
 from app.services.artifact_service import ArtifactService
 
 router = APIRouter(tags=["Artifacts"])
@@ -26,14 +29,20 @@ async def generate(
     project_id: str,
     payload: GenerateRequest,
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     try:
+        if payload.requirement_id:
+            requirement = db.get(Requirement, payload.requirement_id)
+            if not requirement or requirement.project_id != project_id:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requirement not found in this project")
         return await artifact_service.generate(
             project_id=project_id,
             artifact_type=payload.artifact_type,
             requirement_text=payload.requirement_text,
             user=user,
+            requirement_id=payload.requirement_id,
         )
     except ResourceNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
@@ -130,67 +139,10 @@ def artifact_evaluations(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
 
-def _export_json(artifact) -> Response:
-    body = json.dumps(
-        {
-            "id": artifact.id,
-            "project_id": artifact.project_id,
-            "artifact_type": artifact.artifact_type,
-            "title": artifact.title,
-            "version": artifact.version,
-            "content": artifact.content,
-        },
-        indent=2,
-    )
-    return Response(
-        content=body,
-        media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.json"'},
-    )
-
-def _export_markdown(artifact) -> Response:
-    title = artifact.title or artifact.artifact_type
-    md_lines = [f"# {title}", f"**Version:** {artifact.version}", f"**Type:** {artifact.artifact_type}", ""]
-    if isinstance(artifact.content, dict):
-        for k, v in artifact.content.items():
-            md_lines.append(f"## {k.replace('_', ' ').title()}")
-            md_lines.append(json.dumps(v, indent=2) if isinstance(v, (dict, list)) else str(v))
-    body = "\n".join(md_lines)
-    return Response(
-        content=body,
-        media_type="text/markdown",
-        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.md"'},
-    )
-
-def _export_csv(artifact) -> Response:
-    body = f"id,project_id,artifact_type,title,version\n{artifact.id},{artifact.project_id},{artifact.artifact_type},{artifact.title},{artifact.version}\n"
-    return Response(
-        content=body,
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.csv"'},
-    )
-
-def _export_yaml(artifact) -> Response:
-    body = yaml.dump(
-        {
-            "id": artifact.id,
-            "project_id": artifact.project_id,
-            "artifact_type": artifact.artifact_type,
-            "title": artifact.title,
-            "version": artifact.version,
-            "content": artifact.content,
-        }
-    )
-    return Response(
-        content=body,
-        media_type="application/x-yaml",
-        headers={"Content-Disposition": f'attachment; filename="{artifact.artifact_type}-{artifact.id}.yaml"'},
-    )
-
 @router.get("/artifacts/{artifact_id}/export")
 def export_artifact(
     artifact_id: str,
-    format: str = Query("json", pattern="^(?i)(json|markdown|md|csv|yaml|yml)$"),
+    format: str = Query("json", pattern="^(?i)(json|markdown|md|csv|yaml|yml|gherkin)$"),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     user: User = Depends(get_current_user),
 ):
@@ -201,12 +153,35 @@ def export_artifact(
     except AuthorisationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
-    fmt = format.lower()
-    if fmt == "json":
-        return _export_json(artifact)
-    if fmt in ("markdown", "md"):
-        return _export_markdown(artifact)
-    if fmt == "csv":
-        return _export_csv(artifact)
-    if fmt in ("yaml", "yml"):
-        return _export_yaml(artifact)
+    response = render_artifact_export(artifact, format)
+    if response is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Gherkin export is only supported for acceptance_criteria artifacts",
+        )
+    return response
+
+
+@router.get("/projects/{project_id}/artifacts/export.zip")
+def export_project_artifacts_zip(
+    project_id: str,
+    artifact_service: ArtifactService = Depends(get_artifact_service),
+    user: User = Depends(get_current_user),
+):
+    try:
+        artifacts = artifact_service.list_for_project(project_id, user)
+    except ResourceNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except AuthorisationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for artifact in artifacts:
+            filename = f"{artifact.artifact_type}-{artifact.id}.json"
+            archive.writestr(filename, json.dumps({
+                "id": artifact.id, "project_id": artifact.project_id,
+                "artifact_type": artifact.artifact_type, "title": artifact.title,
+                "version": artifact.version, "content": artifact.content,
+            }, indent=2))
+    return Response(content=buffer.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="project-{project_id}-artifacts.zip"'})

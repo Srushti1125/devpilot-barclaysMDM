@@ -1,29 +1,104 @@
-# Secrets and environment variables
-.env
-*.env
-.env.local
-.env.*.local
 
+# ==============================
+# Secrets and environment files
+# ==============================
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Private keys and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# ==============================
 # Python
-venv/
-env/
-.venv/
+# ==============================
 __pycache__/
 *.py[cod]
 *.class
-.pytest_cache/
-backend/devpilot.db
-backend/var/
+*.egg-info/
+.python-version
+.venv/
+venv/
+env/
 
-# Node / React (for Person 1)
+# Python tooling and tests
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+
+# ==============================
+# Node.js / React / Next.js
+# ==============================
 node_modules/
 dist/
 build/
 .next/
+out/
+coverage/
+.turbo/
+.parcel-cache/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# IDE / OS
+# ==============================
+# Local databases and generated data
+# ==============================
+backend/devpilot.db
+backend/var/
+ai-engine/devpilot.db
+# Offline eval harness output (IMPLEMENTATION.draft.md §4.2 Layer 2)
+ai-engine/eval_data/eval_report*.json
+*.sqlite
+*.sqlite3
+
+# ==============================
+# Logs and temporary files
+# ==============================
+*.log
+*.pid
+*.pid.lock
+tmp/
+temp/
+
+# ==============================
+# IDEs and editors
+# ==============================
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# ==============================
+# Operating system
+# ==============================
 .DS_Store
 Thumbs.db
-backend/.coverage
+Desktop.ini
+
+# ==============================
+# Local AI tooling configuration
+# ==============================
+.cursor/
+.continue/
+.windsurf/
+.claude/settings.local.json
+
+# ==============================
+# Local-only files
+# ==============================
+*.local
+*.draft.md

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: ankane/pgvector:latest
@@ -13,16 +11,38 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   ai-engine:
-    build: 
+    build:
       context: ./ai-engine
     env_file:
       - ./ai-engine/.env
+    environment:
+      # In-network DB address; env_file values above target host dev (localhost:5433).
+      DATABASE_URL: postgresql+psycopg://devpilot:devpilot@db:5432/devpilot
     ports:
       - "8001:8001"
     depends_on:
       - db
     volumes:
-      - "./backend/var/uploads:/home/devanssh/Desktop/Projects '27/devpilot-barclaysMDM/backend/var/uploads"
+      # Must match the backend's UPLOAD_DIR: the backend passes file paths to ai-engine.
+      - uploads:/shared/uploads
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://devpilot:devpilot@db:5432/devpilot
+      AI_ENGINE_URL: http://ai-engine:8001
+      UPLOAD_DIR: /shared/uploads
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - ai-engine
+    volumes:
+      - uploads:/shared/uploads
 
 volumes:
   postgres_data:
+  uploads:

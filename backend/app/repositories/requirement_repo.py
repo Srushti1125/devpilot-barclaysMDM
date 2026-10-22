@@ -9,10 +9,14 @@ class RequirementRepository(BaseRepository[Requirement]):
     def __init__(self, db: Session):
         super().__init__(db, Requirement)
 
-    def list_for_project(self, project_id: str) -> list[Requirement]:
+    def list_for_project(self, project_id: str, *, limit: int | None = None,
+                         oldest_first: bool = False) -> list[Requirement]:
+        ordering = Requirement.created_at.asc() if oldest_first else Requirement.created_at.desc()
         stmt = (
             select(Requirement)
             .where(Requirement.project_id == project_id)
-            .order_by(Requirement.created_at.desc())
+            .order_by(ordering)
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         return list(self.db.scalars(stmt))

@@ -1,3 +1,4 @@
+
 """
 Security integration tests.
 
@@ -52,6 +53,6 @@ def test_path_traversal_in_upload_handled_safely(client, dev_headers, mock_ai_in
         headers=dev_headers,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 202
     # Check that Path(...).name was extracted and traversal wasn't written to /etc/passwd
     assert response.json()["filename"] == "passwd.txt"

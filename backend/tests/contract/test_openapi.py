@@ -27,6 +27,23 @@ def test_openapi_schema_generation(client):
     assert "/health/db" in paths
     assert "/health/ai" in paths
 
+    # Sprint 2-6 surface: async ingest jobs, SOP generation, comparison, streaming,
+    # traceability and admin evaluation (§2.2.4, §3.2, §4.2, §5.3).
+    for sprint_path in (
+        "/api/v1/projects/{project_id}/requirements",
+        "/api/v1/ingest-jobs/{job_id}",
+        "/api/v1/projects/{project_id}/generate",
+        "/api/v1/projects/{project_id}/generate/stream",
+        "/api/v1/projects/{project_id}/compare",
+        "/api/v1/projects/{project_id}/traceability",
+        "/api/v1/evaluate/batch",
+    ):
+        assert sprint_path in paths, f"missing endpoint {sprint_path}"
+
+    # Async ingestion contract: upload acknowledges with 202, not 201.
+    upload = paths["/api/v1/projects/{project_id}/requirements"]["post"]
+    assert "202" in upload["responses"]
+
 
 def test_openapi_schemas_components(client):
     response = client.get("/openapi.json")

@@ -9,7 +9,7 @@ Verifies:
 
 import pytest
 from pydantic import ValidationError
-from app.schemas import UserCreate, ProjectCreate, EvaluationCreate
+from app.domain.schemas import UserCreate, ProjectCreate, EvaluationCreate
 
 
 def test_user_create_valid():

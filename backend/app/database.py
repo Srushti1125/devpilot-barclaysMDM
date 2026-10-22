@@ -1,22 +1,7 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
-
-from app.config import settings
-
-
-class Base(DeclarativeBase):
-    pass
-
-
-connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
-engine = create_engine(settings.database_url, pool_pre_ping=True, connect_args=connect_args)
-SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+"""
+Compatibility shim. The single SQLAlchemy Base, engine and session factory live in
+app.core.database. Re-exported here so legacy imports share one metadata object.
+(Previously this module defined a second Base, so create_all() on it created no domain tables.)
+"""
+from app.core.database import Base, SessionLocal, engine, get_db  # noqa: F401
 

@@ -1,9 +1,13 @@
-import json
+import logging
 import re
 
 from langchain_core.exceptions import OutputParserException
 
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+logger = logging.getLogger("devpilot.quality")
+
+# (?:...)|(?:...) grouping is explicit; [ \t]* (not \s*) keeps the alternation linear —
+# \s* at line boundaries can scan across newlines and backtrack super-linearly (S8786/S5850).
+_CODE_FENCE_RE = re.compile(r"^(?:```(?:json)?[ \t]*|[ \t]*```$)", re.MULTILINE)
 
 
 def _strip_code_fences(text: str) -> str:
@@ -14,6 +18,10 @@ def _extract_text(raw) -> str:
     return raw.content if hasattr(raw, "content") else str(raw)
 
 
+# json.JSONDecodeError subclasses ValueError — listing both would be redundant (S5713).
+_PARSE_ERRORS = (OutputParserException, ValueError)
+
+
 def generate_with_quality_check(
     chain,
     inputs: dict,
@@ -21,22 +29,34 @@ def generate_with_quality_check(
     max_retries: int = 2,
     fallback_chain=None,
 ):
+    """
+    Primary chain (e.g. Groq) with parse-repair retries, then fallback chain (e.g. Gemini).
+
+    - Parse/validation errors: retry the primary with a repair note.
+    - Provider errors (rate limit, outage, auth, timeout): skip remaining primary retries
+      and go straight to the fallback. Retrying a failing provider wastes latency budget.
+    """
     last_error = None
     attempt_inputs = dict(inputs)
     attempt_inputs.setdefault("repair_note", "")
 
-    for attempt in range(max_retries):
+    for _ in range(max_retries):
         try:
             raw = chain.invoke(attempt_inputs)
             text = _strip_code_fences(_extract_text(raw))
             parsed = parser.parse(text)
             return parsed, raw
-        except (OutputParserException, ValueError, json.JSONDecodeError) as e:
+        except _PARSE_ERRORS as e:
             last_error = e
             attempt_inputs["repair_note"] = (
                 f"Your previous output was invalid: {e}. "
                 f"Fix it and respond with ONLY the corrected JSON, no markdown fences."
             )
+        except Exception as e:  # provider-side failure
+            last_error = e
+            logger.warning("Primary LLM failed (%s: %s); switching to fallback.",
+                           type(e).__name__, e)
+            break
 
     if fallback_chain is not None:
         try:
@@ -44,7 +64,7 @@ def generate_with_quality_check(
             text = _strip_code_fences(_extract_text(raw))
             parsed = parser.parse(text)
             return parsed, raw
-        except (OutputParserException, ValueError, json.JSONDecodeError) as e:
+        except Exception as e:
             last_error = e
 
     raise RuntimeError(f"Generation failed after {max_retries} retries: {last_error}")

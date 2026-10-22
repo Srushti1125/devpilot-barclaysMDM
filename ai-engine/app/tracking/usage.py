@@ -22,13 +22,13 @@ def record_request() -> dict:
     quota_exceeded = count > settings.DAILY_REQUEST_QUOTA
     if quota_exceeded:
         logger.warning(
-            "Gemini free-tier daily request quota likely exceeded: "
-            "%d requests today (quota=%d). Consider FALLBACK_LLM or Mistral fallback.",
+            "Daily LLM request quota likely exceeded: "
+            "%d requests today (quota=%d). Consider switching DEFAULT_LLM or FALLBACK_LLM.",
             count, settings.DAILY_REQUEST_QUOTA,
         )
     elif count == int(settings.DAILY_REQUEST_QUOTA * 0.9):
         logger.warning(
-            "Approaching Gemini free-tier daily request quota: %d/%d requests today.",
+            "Approaching daily LLM request quota: %d/%d requests today.",
             count, settings.DAILY_REQUEST_QUOTA,
         )
 

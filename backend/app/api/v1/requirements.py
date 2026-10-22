@@ -1,10 +1,9 @@
 """
-Requirement Ingestion API endpoints (UC-01).
+Requirement Ingestion API endpoints (UC-01) — decomposed router.
+NOT MOUNTED YET (Sprint 6 target per AGENTS.md). Kept current with the live async
+contract in app/main.py: upload → 202 job → poll ingest-jobs → terminal state persists
+chunks_indexed + doc_tree_nodes via app.services.ingest_service.
 """
-
-import os
-import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -13,17 +12,16 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, get_project_service
 from app.config import settings
 from app.core.exceptions import AuthorisationError, ResourceNotFoundError
-from app.models import AuditLog, Requirement, User
-from app.services.ai_engine import AIEngineClient
+from app.domain.models import IngestJob, Requirement, User
+from app.services import ingest_service
 from app.services.project_service import ProjectService
 
 router = APIRouter(tags=["Requirements"])
 
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".doc", ".txt", ".md", ".csv", ".pptx", ".xlsx", ".html"}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-
-@router.post("/projects/{project_id}/requirements", status_code=status.HTTP_201_CREATED)
+@router.post("/projects/{project_id}/requirements", status_code=status.HTTP_202_ACCEPTED,
+             responses={415: {"description": "Unsupported requirement file type"},
+                        413: {"description": "Requirement file exceeds 10 MB"}})
 async def ingest_requirement(
     project_id: str,
     file: UploadFile = File(...),
@@ -32,6 +30,8 @@ async def ingest_requirement(
     project_service: ProjectService = Depends(get_project_service),
     user: User = Depends(get_current_user),
 ):
+    """§2.2.4: uploads return 202 immediately; parse+index runs as an ai-engine job.
+    Poll GET /ingest-jobs/{id} for progress."""
     try:
         project_service.get_project_or_fail(project_id, user, write=True)
     except ResourceNotFoundError as e:
@@ -39,55 +39,38 @@ async def ingest_requirement(
     except AuthorisationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
-    filename = Path(file.filename or "requirement.txt").name
-    suffix = Path(filename).suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="Unsupported requirement file type",
-        )
+    data = await file.read(ingest_service.MAX_FILE_SIZE + 1)
+    record, job = await ingest_service.create_ingest_job(
+        db, project_id=project_id, user=user, data=data,
+        filename=file.filename or "requirement.txt", doc_type=doc_type,
+        upload_dir=settings.upload_dir)
+    return {"id": record.id, "filename": record.filename, "project_id": project_id,
+            "ingest_job_id": job.id, "status": job.status}
 
-    data = await file.read(MAX_FILE_SIZE + 1)
-    if len(data) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Requirement file exceeds 10 MB",
-        )
 
-    os.makedirs(settings.upload_dir, exist_ok=True)
-    path = Path(settings.upload_dir) / f"{uuid.uuid4()}{suffix}"
-    path.write_bytes(data)
-
-    content = data.decode("utf-8", errors="replace") if suffix in {".txt", ".md", ".csv", ".html"} else ""
+@router.get("/ingest-jobs/{job_id}", responses={404: {"description": "Ingest job not found"}})
+async def read_ingest_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+    user: User = Depends(get_current_user),
+):
+    """Poll the ai-engine ingest job; on first terminal state persist results (idempotent)."""
+    job = db.get(IngestJob, job_id)
+    if not job:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingest job not found")
+    requirement = db.get(Requirement, job.requirement_id)
+    if not requirement:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingest job not found")
     try:
-        result = await AIEngineClient().ingest(str(path.resolve()), project_id, doc_type)
-    except Exception:
-        path.unlink(missing_ok=True)
-        raise
+        project_service.get_project_or_fail(requirement.project_id, user)
+    except AuthorisationError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
 
-    record = Requirement(
-        id=str(uuid.uuid4()),
-        project_id=project_id,
-        uploaded_by=user.id,
-        filename=filename,
-        file_path=str(path),
-        content=content,
-        doc_type=doc_type,
-        chunks_indexed=result.get("chunks_indexed", 0),
-    )
-    db.add(record)
-    db.add(
-        AuditLog(
-            id=str(uuid.uuid4()),
-            user_id=user.id,
-            action="requirement.ingest",
-            resource_type="requirement",
-            resource_id=record.id,
-            details={"filename": filename, "chunks_indexed": record.chunks_indexed},
-        )
-    )
-    db.commit()
-    return {"id": record.id, "filename": filename, "project_id": project_id, **result}
+    job = await ingest_service.poll_and_finalize(db, job)
+    return {"id": job.id, "requirement_id": job.requirement_id, "status": job.status,
+            "chunks_indexed": job.chunks_indexed, "error_message": job.error_message,
+            "created_at": job.created_at, "updated_at": job.updated_at}
 
 
 @router.get("/projects/{project_id}/requirements")

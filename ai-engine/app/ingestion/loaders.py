@@ -1,8 +1,13 @@
+import logging
 import pathlib
 import tempfile
 import urllib.parse
 
 from langchain_core.documents import Document
+
+from app.config import settings
+
+logger = logging.getLogger("devpilot.ingestion")
 
 SUPPORTED_EXTENSIONS = {
     ".pdf", ".docx", ".doc", ".txt", ".md", ".csv", ".pptx", ".xlsx", ".html",
@@ -13,6 +18,18 @@ def _load_with_unstructured(file_path: str) -> list[Document]:
     from langchain_community.document_loaders import UnstructuredFileLoader
     loader = UnstructuredFileLoader(file_path, mode="single")
     return loader.load()
+
+
+def _load_with_docling(file_path: str) -> list[Document]:
+    """
+    Structure-aware parse (headings, tables, page numbers). Preferred for PDF/DOCX; see §2.2.1.
+    The Block list rides along in metadata["_blocks"] so the ingestion pipeline builds the tree
+    from the same parse (with real page ranges) instead of re-parsing Markdown. The pipeline pops it.
+    """
+    from app.ingestion.docling_parser import blocks_to_markdown, parse_to_blocks
+    blocks = parse_to_blocks(file_path)
+    return [Document(page_content=blocks_to_markdown(blocks),
+                     metadata={"parser": "docling", "_blocks": blocks})]
 
 
 def _load_plain_text(file_path: str) -> list[Document]:
@@ -58,6 +75,13 @@ def load_requirement_doc(
     try:
         if ext in ("txt", "md"):
             docs = _load_plain_text(local_path)
+        elif ext in ("pdf", "docx") and settings.DOCLING_ENABLED:
+            try:
+                docs = _load_with_docling(local_path)
+            except Exception as e:  # docling failure must not block ingestion
+                logger.warning("Docling failed on %s (%s); falling back to unstructured.",
+                               local_path, e)
+                docs = _load_with_unstructured(local_path)
         else:
             docs = _load_with_unstructured(local_path)
         if not docs or all(not d.page_content.strip() for d in docs):

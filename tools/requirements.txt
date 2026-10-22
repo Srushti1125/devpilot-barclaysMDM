@@ -1,0 +1,9 @@
+# DevPilot pipeline UI — runs in a SEPARATE venv on purpose: streamlit pulls a starlette
+# version incompatible with the engine's fastapi==0.115.0 pin. Create & install:
+#   python3.11 -m venv ~/.venvs/devpilot-ui
+#   ~/.venvs/devpilot-ui/bin/pip install -r tools/requirements.txt
+streamlit>=1.36,<2
+requests>=2.31
+pandas>=2.0
+sqlalchemy>=2.0,<3
+psycopg[binary]>=3.2
